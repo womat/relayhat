@@ -1,0 +1,37 @@
+simulation: yes
+
+# gpio 22 and gpio 27 only for Raspberry Pi 4 Channel Relay HAT
+relay:
+  relay1:
+    description: "gpio 4 available for Raspberry Pi 4 Channel Relay HAT and Raspberry Pi Zero Relay HAT"
+    gpio: 4
+  relay2:
+    description: "gpio 17 available for Raspberry Pi 4 Channel Relay HAT and Raspberry Pi Zero Relay HAT"
+    gpio: 17
+  relay3:
+    description: "gpio 22 only for Raspberry Pi 4 Channel Relay HAT"
+    gpio: 22
+  relay4:
+    description: "gpio 27 only for Raspberry Pi 4 Channel Relay HAT"
+    gpio: 27
+
+# webserver configuration
+webserver:
+  url: http://0.0.0.0:8080
+  # enable/disable webservices
+  webservices:
+    version: true
+    health: true
+    set: true
+    state: true
+
+# enable debugging and log path
+debug:
+  # log file e.g. /tmp/emu.log; stderr; stdout
+  # default: stderr
+  file: stderr
+  # flag: (default: standard)
+  #       standard (default) >> Warning | Info | Error | Fatal
+  #       trace              >> Warning | Info | Error | Fatal | Debug | Trace
+  #       debug              >> Warning | Info | Error | Fatal | Debug
+  flag: full
