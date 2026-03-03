@@ -119,7 +119,7 @@ func (app *App) Init() error {
 	}
 
 	// initRoutes should always be called at the end
-	slog.Info("Initializing API routes")
+	slog.Debug("Initializing API routes")
 	app.SetupRoutes()
 
 	return nil
@@ -143,7 +143,7 @@ func (app *App) HandleOSSignals() {
 		signal.Notify(sig, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGINT)
 		defer signal.Stop(sig) // Cleanup: rollback signal.Notify
 
-		slog.Info("Starting signal handler")
+		slog.Debug("Starting signal handler")
 
 		// Use select instead of a plain channel receive so the goroutine has
 		// two exit paths and always terminates cleanly:

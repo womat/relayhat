@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"relayhat/pkg/relay"
 	"sort"
@@ -13,7 +14,7 @@ var (
 	errRelayNotFound = errors.New("relay not found")
 )
 
-type httpResponse struct {
+type HTTPResponse struct {
 	Name        string `json:"name"`
 	State       string `json:"state"`
 	Description string `json:"description"`
@@ -27,7 +28,7 @@ type httpResponse struct {
 //	@Produce		json
 //	@Security		ApiKeyAuth
 //	@Param			name	path		string			true	"Relay name (e.g. relay1)"
-//	@Success		200		{object}	httpResponse	"Relay state"
+//	@Success		200		{object}	HTTPResponse	"Relay state"
 //	@Failure		401		{string}	string			"Unauthorized"
 //	@Failure		404		{string}	string			"Relay not found"
 //	@Failure		500		{string}	string			"Internal server error"
@@ -54,7 +55,7 @@ func (app *App) HandleRelayGetOne() http.Handler {
 //	@Tags			relay
 //	@Produce		json
 //	@Security		ApiKeyAuth
-//	@Success		200	{array}		httpResponse	"List of all relays"
+//	@Success		200	{array}		HTTPResponse	"List of all relays"
 //	@Failure		401	{string}	string			"Unauthorized"
 //	@Failure		500	{string}	string			"Internal server error"
 //	@Router			/relay [get]
@@ -68,7 +69,7 @@ func (app *App) HandleRelayGetAll() http.Handler {
 			}
 			sort.Strings(names)
 
-			res := make([]httpResponse, 0, len(names))
+			res := make([]HTTPResponse, 0, len(names))
 			for _, n := range names {
 				resp, stat, err := app.relayGet(n)
 				if err != nil {
@@ -91,7 +92,7 @@ func (app *App) HandleRelayGetAll() http.Handler {
 //	@Security		ApiKeyAuth
 //	@Param			name	path		string			true	"Relay name (e.g. relay1)"
 //	@Param			state	path		string			true	"Target state"	Enums(on, off)
-//	@Success		200		{object}	httpResponse	"Updated relay state"
+//	@Success		200		{object}	HTTPResponse	"Updated relay state"
 //	@Failure		400		{string}	string			"Bad request – unknown state"
 //	@Failure		401		{string}	string			"Unauthorized"
 //	@Failure		404		{string}	string			"Relay not found"
@@ -110,46 +111,47 @@ func (app *App) HandleRelaySet() http.Handler {
 				return
 			}
 
+			slog.Info("Relay set", "name", name, "state", state)
 			web.Encode(w, http.StatusOK, res)
 		})
 }
 
-func (app *App) relayGet(name string) (httpResponse, int, error) {
+func (app *App) relayGet(name string) (HTTPResponse, int, error) {
 	r, ok := app.relays[name]
 	if !ok {
-		return httpResponse{}, http.StatusNotFound, errRelayNotFound
+		return HTTPResponse{}, http.StatusNotFound, errRelayNotFound
 	}
 
 	s, err := r.GetState()
 	if err != nil {
-		return httpResponse{}, http.StatusInternalServerError, err
+		return HTTPResponse{}, http.StatusInternalServerError, err
 	}
 
-	return httpResponse{
+	return HTTPResponse{
 		Name:        name,
 		State:       s.String(),
 		Description: r.Description,
 	}, http.StatusOK, nil
 }
 
-func (app *App) relaySet(name, state string) (httpResponse, int, error) {
+func (app *App) relaySet(name, state string) (HTTPResponse, int, error) {
 	r, ok := app.relays[name]
 	if !ok {
-		return httpResponse{}, http.StatusNotFound, errRelayNotFound
+		return HTTPResponse{}, http.StatusNotFound, errRelayNotFound
 	}
 
 	switch state {
 	case "on":
 		if err := r.TurnOn(); err != nil {
-			return httpResponse{}, http.StatusInternalServerError, err
+			return HTTPResponse{}, http.StatusInternalServerError, err
 
 		}
 	case "off":
 		if err := r.TurnOff(); err != nil {
-			return httpResponse{}, http.StatusInternalServerError, err
+			return HTTPResponse{}, http.StatusInternalServerError, err
 		}
 	default:
-		return httpResponse{}, http.StatusBadRequest, relay.ErrUnknownState
+		return HTTPResponse{}, http.StatusBadRequest, relay.ErrUnknownState
 	}
 
 	return app.relayGet(name)

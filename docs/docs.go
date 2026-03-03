@@ -67,7 +67,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/app.httpResponse"
+                                "$ref": "#/definitions/app.HTTPResponse"
                             }
                         }
                     },
@@ -114,7 +114,7 @@ const docTemplate = `{
                     "200": {
                         "description": "Relay state",
                         "schema": {
-                            "$ref": "#/definitions/app.httpResponse"
+                            "$ref": "#/definitions/app.HTTPResponse"
                         }
                     },
                     "401": {
@@ -177,7 +177,7 @@ const docTemplate = `{
                     "200": {
                         "description": "Updated relay state",
                         "schema": {
-                            "$ref": "#/definitions/app.httpResponse"
+                            "$ref": "#/definitions/app.HTTPResponse"
                         }
                     },
                     "400": {
@@ -237,7 +237,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "app.httpResponse": {
+        "app.HTTPResponse": {
             "type": "object",
             "properties": {
                 "description": {

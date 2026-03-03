@@ -150,7 +150,7 @@ func run(configFile string, debug bool) int {
 			slog.Info("Reloading configuration", "configFile", configFile)
 			time.Sleep(time.Second) // prevent tight restart loops
 		case <-a.Shutdown():
-			slog.Info("Shutdown requested")
+			slog.Debug("Shutdown requested")
 			return 0
 		}
 	}

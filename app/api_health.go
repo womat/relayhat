@@ -1,10 +1,5 @@
-// This package is designed to support Kubernetes-style health checks by exposing
-// separate Liveness (/live) and Readiness (/ready) endpoints. Liveness checks
-// verify that the application is running, whereas Readiness checks ensure that
-// the application and its dependencies (DB, GPIO, etc.) are ready to serve traffic.
-//
-// The health data includes metrics such as memory usage, goroutine count, application
-// version, hostname, Go runtime version, and operating system.
+// Package app provides HTTP handlers for application health and readiness checks.
+// Health returns runtime metrics; Ready is a Kubernetes readiness probe.
 
 package app
 

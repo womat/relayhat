@@ -1,5 +1,5 @@
 definitions:
-  app.httpResponse:
+  app.HTTPResponse:
     properties:
       description:
         type: string
@@ -75,7 +75,7 @@ paths:
           description: List of all relays
           schema:
             items:
-              $ref: '#/definitions/app.httpResponse'
+              $ref: '#/definitions/app.HTTPResponse'
             type: array
         "401":
           description: Unauthorized
@@ -105,7 +105,7 @@ paths:
         "200":
           description: Relay state
           schema:
-            $ref: '#/definitions/app.httpResponse'
+            $ref: '#/definitions/app.HTTPResponse'
         "401":
           description: Unauthorized
           schema:
@@ -147,7 +147,7 @@ paths:
         "200":
           description: Updated relay state
           schema:
-            $ref: '#/definitions/app.httpResponse'
+            $ref: '#/definitions/app.HTTPResponse'
         "400":
           description: Bad request – unknown state
           schema:
