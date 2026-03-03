@@ -59,7 +59,8 @@ func New(config *Config, baseDir string) *App {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &App{
-		config: config,
+		config:  config,
+		baseDir: baseDir,
 		web: &http.Server{
 			Addr: net.JoinHostPort(config.Webserver.ListenHost, strconv.Itoa(config.Webserver.ListenPort)),
 		},

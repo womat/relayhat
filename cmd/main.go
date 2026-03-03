@@ -1,8 +1,38 @@
-// Package main provides the entry point for the demp_app application.
+// Package main is the entry point for the relayhat application.
 //
-// This program initializes logging, loads configuration, handles command-line flags,
-// and starts the main application loop. It supports hot reloads of the config
-// and provides about/version/help output.
+// relayhat exposes a secured HTTPS REST API to control BC Robotics Relay HATs
+// attached to a Raspberry Pi via GPIO. It supports both the 2-channel HAT
+// (Pi Zero, GPIO 4/17) and the 4-channel HAT (Pi 3/4/5, GPIO 4/17/22/27).
+//
+// # Startup
+//
+// The application loads its configuration from a YAML file (default:
+// /opt/relayhat/etc/config.yaml), initialises structured logging via slog,
+// registers GPIO-backed relay handlers, and starts a TLS HTTP server.
+//
+// # Signals
+//
+//   - SIGHUP  – hot-reload: closes GPIO pins, reloads config, restarts server
+//   - SIGTERM – graceful shutdown
+//   - SIGINT  – graceful shutdown (Ctrl+C)
+//
+// # CLI Flags
+//
+//	-config  path to config file (default: /opt/relayhat/etc/config.yaml)
+//	         overridden by CONFIG_FILE env variable
+//	-debug   force log level "debug" and output to stdout
+//	-version print version and exit
+//	-about   print build metadata and exit
+//	-help    print README and exit
+//
+// # Build Tags
+//
+//	swagger  include Swagger UI at /swagger/
+//
+// Build-time variables injected via -ldflags:
+//
+//	main.buildDate    – UTC timestamp of the build
+//	main.buildCommit  – short Git commit hash
 package main
 
 import (
@@ -31,6 +61,9 @@ var (
 	buildCommit = "none"
 )
 
+// @securityDefinitions.apikey	ApiKeyAuth
+// @in							header
+// @name						X-API-Key
 func main() {
 	// Parse command line flags.
 	flags := flag.NewFlagSet(os.Args[0], flag.ContinueOnError)

@@ -9,9 +9,10 @@ import (
 // HandleVersion returns the application name and version.
 //
 //	@Summary		Get application version and name
-//	@Description	Returns the name and version of the application for debugging and monitoring.
+//	@Description	Returns the current application name and version. No authentication required.
 //	@Tags			info
-//	@Success		200	{object}	object{app=string,appVersion=string}	"Application version and name successfully retrieved"
+//	@Produce		json
+//	@Success		200	{object}	object{app=string,appVersion=string}	"Application version and name"
 //	@Router			/version [get]
 func (app *App) HandleVersion() http.Handler {
 	// Response defines the JSON structure returned by /version

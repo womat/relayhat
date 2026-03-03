@@ -9,8 +9,7 @@ import (
 )
 
 var (
-	errUnknownState = errors.New("unknown state")
-	//errRelayNotFound = errors.New("relay not found")
+	errRelayNotFound = errors.New("relay not found")
 )
 
 type httpResponse struct {
@@ -19,6 +18,19 @@ type httpResponse struct {
 	Description string `json:"description"`
 }
 
+// HandleRelayGetOne returns the state of a single relay by name.
+//
+//	@Summary		Get relay state
+//	@Description	Returns name, state (on/off) and description for the given relay.
+//	@Tags			relay
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			name	path		string			true	"Relay name (e.g. relay1)"
+//	@Success		200		{object}	httpResponse	"Relay state"
+//	@Failure		401		{string}	string			"Unauthorized"
+//	@Failure		404		{string}	string			"Relay not found"
+//	@Failure		500		{string}	string			"Internal server error"
+//	@Router			/relay/{name} [get]
 func (app *App) HandleRelayGetOne() http.Handler {
 	return http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
@@ -34,6 +46,17 @@ func (app *App) HandleRelayGetOne() http.Handler {
 		})
 }
 
+// HandleRelayGetAll returns the state of all configured relays.
+//
+//	@Summary		List all relays
+//	@Description	Returns name, state (on/off) and description for every configured relay.
+//	@Tags			relay
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Success		200	{array}		httpResponse	"List of all relays"
+//	@Failure		401	{string}	string			"Unauthorized"
+//	@Failure		500	{string}	string			"Internal server error"
+//	@Router			/relay [get]
 func (app *App) HandleRelayGetAll() http.Handler {
 	return http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +77,21 @@ func (app *App) HandleRelayGetAll() http.Handler {
 		})
 }
 
+// HandleRelaySet sets the state of a relay to on or off.
+//
+//	@Summary		Set relay state
+//	@Description	Switches the given relay to the requested state. Valid states: on, off.
+//	@Tags			relay
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			name	path		string			true	"Relay name (e.g. relay1)"
+//	@Param			state	path		string			true	"Target state"	Enums(on, off)
+//	@Success		200		{object}	httpResponse	"Updated relay state"
+//	@Failure		400		{string}	string			"Bad request – unknown state"
+//	@Failure		401		{string}	string			"Unauthorized"
+//	@Failure		404		{string}	string			"Relay not found"
+//	@Failure		500		{string}	string			"Internal server error"
+//	@Router			/relay/{name}/{state} [put]
 func (app *App) HandleRelaySet() http.Handler {
 	return http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +112,7 @@ func (app *App) HandleRelaySet() http.Handler {
 func (app *App) relayGet(name string) (httpResponse, int, error) {
 	r, ok := app.relays[name]
 	if !ok {
-		return httpResponse{}, http.StatusNotFound, relay.ErrUnknownState
+		return httpResponse{}, http.StatusNotFound, errRelayNotFound
 	}
 
 	s, err := r.GetState()
@@ -92,7 +130,7 @@ func (app *App) relayGet(name string) (httpResponse, int, error) {
 func (app *App) relaySet(name, state string) (httpResponse, int, error) {
 	r, ok := app.relays[name]
 	if !ok {
-		return httpResponse{}, http.StatusNotFound, relay.ErrUnknownState
+		return httpResponse{}, http.StatusNotFound, errRelayNotFound
 	}
 
 	switch state {
@@ -106,7 +144,7 @@ func (app *App) relaySet(name, state string) (httpResponse, int, error) {
 			return httpResponse{}, http.StatusInternalServerError, err
 		}
 	default:
-		return httpResponse{}, http.StatusBadRequest, errUnknownState
+		return httpResponse{}, http.StatusBadRequest, relay.ErrUnknownState
 	}
 
 	return app.relayGet(name)

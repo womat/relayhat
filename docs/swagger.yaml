@@ -1,4 +1,13 @@
 definitions:
+  app.httpResponse:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      state:
+        type: string
+    type: object
   health.Model:
     properties:
       app:
@@ -35,37 +44,140 @@ definitions:
 info:
   contact: {}
 paths:
-  /api/health:
+  /health:
     get:
       description: Retrieves memory usage, goroutine count, version, hostname, Go
         runtime version, and OS.
+      produces:
+      - application/json
       responses:
         "200":
           description: Health data successfully retrieved
           schema:
             $ref: '#/definitions/health.Model'
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
       summary: Get health data
       tags:
       - info
-  /api/ready:
+  /relay:
     get:
-      description: Checks if the application and its dependencies are ready to serve
-        traffic.
+      description: Returns name, state (on/off) and description for every configured
+        relay.
+      produces:
+      - application/json
       responses:
         "200":
-          description: Application is ready
+          description: List of all relays
           schema:
-            $ref: '#/definitions/health.Model'
-      summary: Readiness check
+            items:
+              $ref: '#/definitions/app.httpResponse'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: List all relays
       tags:
-      - info
-  /api/version:
+      - relay
+  /relay/{name}:
     get:
-      description: Returns the name and version of the application for debugging and
-        monitoring.
+      description: Returns name, state (on/off) and description for the given relay.
+      parameters:
+      - description: Relay name (e.g. relay1)
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
       responses:
         "200":
-          description: Application version and name successfully retrieved
+          description: Relay state
+          schema:
+            $ref: '#/definitions/app.httpResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
+        "404":
+          description: Relay not found
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: Get relay state
+      tags:
+      - relay
+  /relay/{name}/{state}:
+    put:
+      description: 'Switches the given relay to the requested state. Valid states:
+        on, off.'
+      parameters:
+      - description: Relay name (e.g. relay1)
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Target state
+        enum:
+        - "on"
+        - "off"
+        in: path
+        name: state
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Updated relay state
+          schema:
+            $ref: '#/definitions/app.httpResponse'
+        "400":
+          description: Bad request – unknown state
+          schema:
+            type: string
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
+        "404":
+          description: Relay not found
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: Set relay state
+      tags:
+      - relay
+  /version:
+    get:
+      description: Returns the current application name and version. No authentication
+        required.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Application version and name
           schema:
             properties:
               app:
@@ -76,4 +188,9 @@ paths:
       summary: Get application version and name
       tags:
       - info
+securityDefinitions:
+  ApiKeyAuth:
+    in: header
+    name: X-API-Key
+    type: apiKey
 swagger: "2.0"

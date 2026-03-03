@@ -104,7 +104,7 @@ func (c *Config) Validate() error {
 		return errors.New("ApiKey is not configured")
 	}
 
-	validLogLevels := []string{"debug", "info", "warning", "error"}
+	validLogLevels := []string{"debug", "info", "warning", "warn", "error"}
 	if !slices.Contains(validLogLevels, c.LogLevel) {
 		return fmt.Errorf("invalid log level: %s, must be one of %v", c.LogLevel, validLogLevels)
 	}

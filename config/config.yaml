@@ -28,10 +28,10 @@ webserver:
   apiKey: changeme!
 
   # TLS private key file
-  keyFile: /opt/s0meter/etc/key.pem
+  keyFile: /opt/relayhat/etc/key.pem
 
   # TLS certificate file
-  certFile: /opt/s0meter/etc/cert.pem
+  certFile: /opt/relayhat/etc/cert.pem
 
   # Blocked IP addresses or networks (empty = none blocked)
   # Examples: 192.168.0.1, 192.168.0.0/16, 10.0.0.0/8
