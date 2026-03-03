@@ -1,0 +1,79 @@
+definitions:
+  health.Model:
+    properties:
+      app:
+        description: Application name (MODULE)
+        type: string
+      appVersion:
+        description: Current version of the application
+        type: string
+      goVersion:
+        description: Go runtime version
+        type: string
+      heapAllocBytes:
+        description: Allocated heap memory in bytes
+        type: integer
+      hostname:
+        description: Machine name where the app runs
+        type: string
+      numGoroutines:
+        description: Current number of active goroutines
+        type: integer
+      os:
+        description: Operating system name
+        type: string
+      sysMemoryBytes:
+        description: Total memory obtained from the OS
+        type: integer
+      timestamp:
+        description: UTC timestamp when health info was collected (RFC3339)
+        type: string
+      uptimeSeconds:
+        description: Application uptime in seconds
+        type: number
+    type: object
+info:
+  contact: {}
+paths:
+  /api/health:
+    get:
+      description: Retrieves memory usage, goroutine count, version, hostname, Go
+        runtime version, and OS.
+      responses:
+        "200":
+          description: Health data successfully retrieved
+          schema:
+            $ref: '#/definitions/health.Model'
+      summary: Get health data
+      tags:
+      - info
+  /api/ready:
+    get:
+      description: Checks if the application and its dependencies are ready to serve
+        traffic.
+      responses:
+        "200":
+          description: Application is ready
+          schema:
+            $ref: '#/definitions/health.Model'
+      summary: Readiness check
+      tags:
+      - info
+  /api/version:
+    get:
+      description: Returns the name and version of the application for debugging and
+        monitoring.
+      responses:
+        "200":
+          description: Application version and name successfully retrieved
+          schema:
+            properties:
+              app:
+                type: string
+              appVersion:
+                type: string
+            type: object
+      summary: Get application version and name
+      tags:
+      - info
+swagger: "2.0"
