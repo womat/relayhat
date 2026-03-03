@@ -25,8 +25,7 @@ type Config struct {
 	LogDestination string          `yaml:"logDestination"` // Log output: stdout | stderr | /path/to/logfile
 	Webserver      WebserverConfig `yaml:"webserver"`      // Webserver configuration
 
-	Simulation bool             `yaml:"simulation"`
-	Relays     map[string]Relay `yaml:"relay"`
+	Relays map[string]Relay `yaml:"relay"`
 }
 
 // WebserverConfig holds HTTPS server settings.
@@ -47,7 +46,6 @@ func NewConfig() *Config {
 		Env:            DevEnv,
 		LogLevel:       "info",
 		LogDestination: "stdout",
-		Simulation:     true,
 		Webserver: WebserverConfig{
 			ListenHost: "0.0.0.0",
 			ListenPort: "8080",

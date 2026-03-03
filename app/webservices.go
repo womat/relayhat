@@ -88,6 +88,9 @@ func (app *App) StartWebServer() error {
 			// Optional: trigger restart or shutdown here
 			// app.shutdownProcedure(ModeRestart)
 		case <-app.ctx.Done():
+			app.wg.Add(1)       // before shutdown
+			defer app.wg.Done() // after shutdown
+
 			ctxShutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			if err := app.web.Shutdown(ctxShutdown); err != nil {

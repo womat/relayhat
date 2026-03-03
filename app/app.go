@@ -3,14 +3,15 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"relayhat/pkg/relay"
+	"sync"
 	"syscall"
-	"time"
 )
 
 // VERSION holds the version information with the following logic in mind
@@ -34,11 +35,12 @@ const (
 // App is the main application struct.
 // App is where the application is wired up.
 type App struct {
-	baseDir    string        // working directory
-	config     *Config       // app configuration
-	web        *http.Server  // HTTP server
-	restart    chan struct{} // signals application restart
-	shutdown   chan struct{} // signals application shutdown
+	wg         sync.WaitGroup // wait group to track running webserver
+	baseDir    string         // working directory
+	config     *Config        // app configuration
+	web        *http.Server   // HTTP server
+	restart    chan struct{}  // signals application restart
+	shutdown   chan struct{}  // signals application shutdown
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 
@@ -57,7 +59,6 @@ func New(config *Config, baseDir string) *App {
 
 	return &App{
 		config: config,
-
 		web: &http.Server{
 			Addr: net.JoinHostPort(config.Webserver.ListenHost, config.Webserver.ListenPort),
 		},
@@ -65,6 +66,7 @@ func New(config *Config, baseDir string) *App {
 		shutdown:   make(chan struct{}),
 		ctx:        ctx,
 		cancelFunc: cancel,
+		relays:     make(map[string]Relay),
 	}
 }
 
@@ -94,7 +96,7 @@ func (app *App) Run() (*App, error) {
 	return app, nil
 }
 
-// init initializes the application.
+// Init initializes the application.
 func (app *App) Init() error {
 
 	// register the relay
@@ -104,7 +106,7 @@ func (app *App) Init() error {
 
 		if err != nil {
 			slog.Error("Failed to register relay", "name", name, "error", err)
-			return err
+			return fmt.Errorf("failed to register relay %q: %w", name, err)
 		}
 
 		app.relays[name] = Relay{
@@ -136,6 +138,7 @@ func (app *App) HandleOSSignals() {
 	go func() {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGINT)
+		defer signal.Stop(sig) // Cleanup: rollback signal.Notify
 
 		slog.Info("Starting signal handler")
 
@@ -165,15 +168,7 @@ func (app *App) shutdownProcedure(mode int) {
 
 	// cancel the application context to stop all running goroutines
 	app.cancelFunc()
-
-	if mode == ModeStop {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		if err := app.web.Shutdown(ctx); err != nil {
-			slog.Error("Web server shutdown failed", "error", err)
-		}
-	}
+	app.wg.Wait() //wait for the web server to shutdown before cleaning up resources
 
 	if err := app.Cleanup(); err != nil {
 		slog.Error("Cleanup failed", "error", err)
@@ -189,7 +184,6 @@ func (app *App) shutdownProcedure(mode int) {
 		close(app.shutdown)
 		close(app.restart)
 	}
-
 }
 
 // Cleanup releases application resources.

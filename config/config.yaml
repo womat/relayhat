@@ -1,6 +1,55 @@
 simulation: yes
 
-# gpio 22 and gpio 27 only for Raspberry Pi 4 Channel Relay HAT
+# =============================================================================
+# relayhat configuration
+# =============================================================================
+
+# logLevel defines the minimum log level.
+# Messages with at least this level are logged.
+# Allowed values: debug | info | warn | error
+logLevel: info
+
+# logDestination defines where logs are written to.
+# Supported values: stdout | stderr | /path/to/logfile
+logDestination: stdout
+
+
+# =============================================================================
+# Webserver configuration (HTTPS)
+# =============================================================================
+webserver:
+  # Host address the HTTPS server listens on (0.0.0.0 = all interfaces)
+  listenHost: 0.0.0.0
+
+  # Port the HTTPS server listens on
+  listenPort: 443
+
+  # Global API key for protected endpoints
+  apiKey: changeme!
+
+  # TLS private key file
+  keyFile: /opt/s0meter/etc/key.pem
+
+  # TLS certificate file
+  certFile: /opt/s0meter/etc/cert.pem
+
+  # Blocked IP addresses or networks (empty = none blocked)
+  # Examples: 192.168.0.1, 192.168.0.0/16, 10.0.0.0/8
+  blockedIPs: []
+  #  - 192.168.0.1
+  #  - 192.168.0.0/16
+
+  # Allowed IP addresses or networks (empty = all allowed)
+  # Note: ::1 is the IPv6 loopback address
+  # Examples: 127.0.0.1, ::1, 192.168.0.0/16
+  allowedIPs: []
+  #  - 127.0.0.1
+  #  - ::1
+  #  - 192.168.0.0/16
+
+# =============================================================================
+# relay configuration
+# =============================================================================
 relay:
   relay1:
     description: "gpio 4 available for Raspberry Pi 4 Channel Relay HAT and Raspberry Pi Zero Relay HAT"
@@ -15,23 +64,3 @@ relay:
     description: "gpio 27 only for Raspberry Pi 4 Channel Relay HAT"
     gpio: 27
 
-# webserver configuration
-webserver:
-  url: http://0.0.0.0:8080
-  # enable/disable webservices
-  webservices:
-    version: true
-    health: true
-    set: true
-    state: true
-
-# enable debugging and log path
-debug:
-  # log file e.g. /tmp/emu.log; stderr; stdout
-  # default: stderr
-  file: stderr
-  # flag: (default: standard)
-  #       standard (default) >> Warning | Info | Error | Fatal
-  #       trace              >> Warning | Info | Error | Fatal | Debug | Trace
-  #       debug              >> Warning | Info | Error | Fatal | Debug
-  flag: full

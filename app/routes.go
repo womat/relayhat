@@ -51,9 +51,6 @@ func (app *App) SetupRoutes() {
 	mux.Handle("GET "+PathHealth, app.HandleHealth())
 
 	// Protected routes
-	mux.Handle("GET "+PathLive, web.WithAuth(app.HandleLive(), webCfg))
-	mux.Handle("GET "+PathReady, web.WithAuth(app.HandleReady(), webCfg))
-
 	mux.Handle("GET /relay", web.WithAuth(app.HandleRelayGetAll(), webCfg))
 	mux.Handle("GET /relay/{name}", web.WithAuth(app.HandleRelayGetOne(), webCfg))
 	mux.Handle("PUT /relay/{name}/{state}", web.WithAuth(app.HandleRelaySet(), webCfg))

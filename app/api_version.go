@@ -12,7 +12,7 @@ import (
 //	@Description	Returns the name and version of the application for debugging and monitoring.
 //	@Tags			info
 //	@Success		200	{object}	object{app=string,appVersion=string}	"Application version and name successfully retrieved"
-//	@Router			/api/version [get]
+//	@Router			/version [get]
 func (app *App) HandleVersion() http.Handler {
 	// Response defines the JSON structure returned by /api/version
 	type HandleVersionResponse struct {
