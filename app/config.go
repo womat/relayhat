@@ -25,13 +25,13 @@ type Config struct {
 	LogDestination string          `yaml:"logDestination"` // Log output: stdout | stderr | /path/to/logfile
 	Webserver      WebserverConfig `yaml:"webserver"`      // Webserver configuration
 
-	Relays map[string]Relay `yaml:"relay"`
+	Relays map[string]RelayConfig `yaml:"relay"`
 }
 
 // WebserverConfig holds HTTPS server settings.
 type WebserverConfig struct {
 	ListenHost string   `yaml:"listenHost"` // Host address for web server
-	ListenPort string   `yaml:"listenPort"` // Port for web server
+	ListenPort int      `yaml:"listenPort"` // Port for web server
 	ApiKey     string   `yaml:"apiKey"`     // API key for requests
 	JwtSecret  string   `yaml:"jwtSecret"`  // Secret for JWT tokens
 	JwtID      string   `yaml:"jwtID"`      // Unique JWT ID
@@ -41,6 +41,12 @@ type WebserverConfig struct {
 	AllowedIPs []string `yaml:"allowedIPs"` // Allowed IP addresses or networks
 }
 
+// RelayConfig holds the configuration for a single relay from the YAML file.
+type RelayConfig struct {
+	GPIO        int    `yaml:"gpio"`
+	Description string `yaml:"description"`
+}
+
 func NewConfig() *Config {
 	return &Config{
 		Env:            DevEnv,
@@ -48,7 +54,7 @@ func NewConfig() *Config {
 		LogDestination: "stdout",
 		Webserver: WebserverConfig{
 			ListenHost: "0.0.0.0",
-			ListenPort: "8080",
+			ListenPort: 8080,
 			BlockedIPs: []string{},
 			AllowedIPs: []string{},
 		},
@@ -101,6 +107,10 @@ func (c *Config) Validate() error {
 	validLogLevels := []string{"debug", "info", "warning", "error"}
 	if !slices.Contains(validLogLevels, c.LogLevel) {
 		return fmt.Errorf("invalid log level: %s, must be one of %v", c.LogLevel, validLogLevels)
+	}
+
+	if c.Webserver.ListenPort < 1 || c.Webserver.ListenPort > 65535 {
+		return fmt.Errorf("invalid port: %d", c.Webserver.ListenPort)
 	}
 
 	for name, relay := range c.Relays {

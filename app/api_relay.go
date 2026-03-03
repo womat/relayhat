@@ -3,13 +3,14 @@ package app
 import (
 	"errors"
 	"net/http"
+	"relayhat/pkg/relay"
 
 	"github.com/womat/golib/web"
 )
 
 var (
-	errUnknownState  = errors.New("unknown state")
-	errRelayNotFound = errors.New("relay not found")
+	errUnknownState = errors.New("unknown state")
+	//errRelayNotFound = errors.New("relay not found")
 )
 
 type httpResponse struct {
@@ -71,12 +72,12 @@ func (app *App) HandleRelaySet() http.Handler {
 }
 
 func (app *App) relayGet(name string) (httpResponse, int, error) {
-	relay, ok := app.relays[name]
+	r, ok := app.relays[name]
 	if !ok {
-		return httpResponse{}, http.StatusNotFound, errRelayNotFound
+		return httpResponse{}, http.StatusNotFound, relay.ErrUnknownState
 	}
 
-	s, err := relay.GetState()
+	s, err := r.GetState()
 	if err != nil {
 		return httpResponse{}, http.StatusInternalServerError, err
 	}
@@ -84,24 +85,24 @@ func (app *App) relayGet(name string) (httpResponse, int, error) {
 	return httpResponse{
 		Name:        name,
 		State:       s.String(),
-		Description: relay.Description,
+		Description: r.Description,
 	}, http.StatusOK, nil
 }
 
 func (app *App) relaySet(name, state string) (httpResponse, int, error) {
-	relay, ok := app.relays[name]
+	r, ok := app.relays[name]
 	if !ok {
-		return httpResponse{}, http.StatusNotFound, errRelayNotFound
+		return httpResponse{}, http.StatusNotFound, relay.ErrUnknownState
 	}
 
 	switch state {
 	case "on":
-		if err := relay.TurnOn(); err != nil {
+		if err := r.TurnOn(); err != nil {
 			return httpResponse{}, http.StatusInternalServerError, err
 
 		}
 	case "off":
-		if err := relay.TurnOff(); err != nil {
+		if err := r.TurnOff(); err != nil {
 			return httpResponse{}, http.StatusInternalServerError, err
 		}
 	default:

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"relayhat/pkg/relay"
+	"strconv"
 	"sync"
 	"syscall"
 )
@@ -47,10 +48,10 @@ type App struct {
 	relays map[string]Relay
 }
 
+// Relay combines the runtime relay instance with its config metadata.
 type Relay struct {
-	*relay.Relay `json:"-"`
-	GPIO         int    `yaml:"gpio"`
-	Description  string `json:"description"`
+	*relay.Relay
+	Description string
 }
 
 // New checks the Web server URL and initialize the main app structure
@@ -60,7 +61,7 @@ func New(config *Config, baseDir string) *App {
 	return &App{
 		config: config,
 		web: &http.Server{
-			Addr: net.JoinHostPort(config.Webserver.ListenHost, config.Webserver.ListenPort),
+			Addr: net.JoinHostPort(config.Webserver.ListenHost, strconv.Itoa(config.Webserver.ListenPort)),
 		},
 		restart:    make(chan struct{}),
 		shutdown:   make(chan struct{}),
@@ -105,7 +106,6 @@ func (app *App) Init() error {
 		r, err := relay.New(config.GPIO)
 
 		if err != nil {
-			slog.Error("Failed to register relay", "name", name, "error", err)
 			return fmt.Errorf("failed to register relay %q: %w", name, err)
 		}
 
@@ -193,9 +193,9 @@ func (app *App) Cleanup() error {
 	var errs error
 
 	// here cleanup your service
-	for name := range app.relays {
+	for name, r := range app.relays {
 		slog.Info("Cleaning up relay", "name", name)
-		if err := app.relays[name].Close(); err != nil {
+		if err := r.Close(); err != nil {
 			slog.Error("Failed to cleanup relay", "name", name, "error", err)
 			errs = errors.Join(errs, err)
 		}

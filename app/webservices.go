@@ -81,16 +81,16 @@ func (app *App) StartWebServer() error {
 	}()
 
 	// Goroutine to monitor runtime errors and handle shutdown
+	app.wg.Add(1) // before shutdown
 	go func() {
+		defer app.wg.Done() // after shutdown
+
 		select {
 		case err := <-serverErrCh:
 			slog.Error("Webserver runtime error", "error", err)
 			// Optional: trigger restart or shutdown here
 			// app.shutdownProcedure(ModeRestart)
 		case <-app.ctx.Done():
-			app.wg.Add(1)       // before shutdown
-			defer app.wg.Done() // after shutdown
-
 			ctxShutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			if err := app.web.Shutdown(ctxShutdown); err != nil {

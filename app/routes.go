@@ -24,8 +24,6 @@ import (
 const (
 	PathVersion = "/version"
 	PathHealth  = "/health"
-	PathLive    = "/alive"
-	PathReady   = "/ready"
 	PathSwagger = "/swagger/"
 )
 
@@ -48,9 +46,9 @@ func (app *App) SetupRoutes() {
 
 	// Public routes
 	mux.Handle("GET "+PathVersion, app.HandleVersion())
-	mux.Handle("GET "+PathHealth, app.HandleHealth())
 
 	// Protected routes
+	mux.Handle("GET "+PathHealth, web.WithAuth(app.HandleHealth(), webCfg))
 	mux.Handle("GET /relay", web.WithAuth(app.HandleRelayGetAll(), webCfg))
 	mux.Handle("GET /relay/{name}", web.WithAuth(app.HandleRelayGetOne(), webCfg))
 	mux.Handle("PUT /relay/{name}/{state}", web.WithAuth(app.HandleRelaySet(), webCfg))
