@@ -24,7 +24,6 @@ import (
 //
 // VERSION differs from semantic versioning as described in https://semver.org/
 // but we keep the correct syntax.
-// TODO: increase version number
 const (
 	VERSION = "1.6.2+20260228"
 	MODULE  = "relayhat"
@@ -102,6 +101,9 @@ func (app *App) Run() (*App, error) {
 func (app *App) Init() error {
 
 	// register the relay
+	// Re-initialise the relay map on every call so that relay names removed
+	// from the config do not survive a SIGHUP hot-reload into the next run.
+	app.relays = make(map[string]Relay)
 	for name, config := range app.config.Relays {
 		slog.Info("Register relay", "name", name, "gpio", config.GPIO)
 		r, err := relay.New(config.GPIO)
@@ -143,20 +145,28 @@ func (app *App) HandleOSSignals() {
 
 		slog.Info("Starting signal handler")
 
-		receivedSignal := <-sig
-		slog.Info("Received OS signal", "signal", receivedSignal)
-
-		switch receivedSignal {
-		case syscall.SIGHUP:
-			slog.Info("SIGHUP received, initiating restart")
-			app.shutdownProcedure(ModeRestart)
-			// reset the signal registration before the program restarts.
-			// with program restarts, the HandleOSSignals function is called again and re-registers the signals.
-			signal.Reset()
-
-		case syscall.SIGTERM, syscall.SIGINT:
-			slog.Info("SIGTERM/SIGINT received, stopping")
-			app.shutdownProcedure(ModeStop)
+		// Use select instead of a plain channel receive so the goroutine has
+		// two exit paths and always terminates cleanly:
+		//   - a signal is received and handled, or
+		//   - the context is cancelled externally (e.g. from a concurrent shutdown).
+		// Without this, the goroutine would block forever after signal.Reset()
+		// on a SIGHUP restart, leaking one goroutine per reload cycle.
+		select {
+		case receivedSignal := <-sig:
+			slog.Info("Received OS signal", "signal", receivedSignal)
+			switch receivedSignal {
+			case syscall.SIGHUP:
+				slog.Info("SIGHUP received, initiating restart")
+				app.shutdownProcedure(ModeRestart)
+				signal.Reset()
+			case syscall.SIGTERM, syscall.SIGINT:
+				slog.Info("SIGTERM/SIGINT received, stopping")
+				app.shutdownProcedure(ModeStop)
+			}
+		case <-app.ctx.Done():
+			// Context was cancelled externally – exit without triggering
+			// a second shutdown procedure.
+			slog.Debug("Signal handler: context cancelled, exiting goroutine")
 		}
 	}()
 }
@@ -179,6 +189,8 @@ func (app *App) shutdownProcedure(mode int) {
 	case ModeRestart:
 		slog.Info("Shutdown complete, restarting")
 		app.restart <- struct{}{}
+		// Channels are intentionally left open: cmd/main.go receives the restart
+		// signal and calls New(), which creates fresh channels for the next lifecycle.
 	case ModeStop:
 		slog.Info("Module stopped", "module", MODULE, "version", VERSION, "pid", os.Getpid())
 		app.shutdown <- struct{}{}

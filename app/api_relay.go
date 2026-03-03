@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"relayhat/pkg/relay"
+	"sort"
 
 	"github.com/womat/golib/web"
 )
@@ -60,17 +61,21 @@ func (app *App) HandleRelayGetOne() http.Handler {
 func (app *App) HandleRelayGetAll() http.Handler {
 	return http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-
-			res := make([]httpResponse, 0, len(app.relays))
-
+			// sort relay names for consistent output
+			names := make([]string, 0, len(app.relays))
 			for n := range app.relays {
-				r, stat, err := app.relayGet(n)
+				names = append(names, n)
+			}
+			sort.Strings(names)
+
+			res := make([]httpResponse, 0, len(names))
+			for _, n := range names {
+				resp, stat, err := app.relayGet(n)
 				if err != nil {
 					web.Encode(w, stat, err.Error())
 					return
 				}
-
-				res = append(res, r)
+				res = append(res, resp)
 			}
 
 			web.Encode(w, http.StatusOK, res)

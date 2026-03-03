@@ -24,7 +24,6 @@ import (
 const (
 	PathVersion = "/version"
 	PathHealth  = "/health"
-	PathSwagger = "/swagger/"
 )
 
 // SetupRoutes configures all HTTP routes and global middleware for the application.
