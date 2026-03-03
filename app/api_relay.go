@@ -32,7 +32,7 @@ type HTTPResponse struct {
 //	@Failure		401		{string}	string			"Unauthorized"
 //	@Failure		404		{string}	string			"Relay not found"
 //	@Failure		500		{string}	string			"Internal server error"
-//	@Router			/relay/{name} [get]
+//	@Router			/relays/{name} [get]
 func (app *App) HandleRelayGetOne() http.Handler {
 	return http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +58,7 @@ func (app *App) HandleRelayGetOne() http.Handler {
 //	@Success		200	{array}		HTTPResponse	"List of all relays"
 //	@Failure		401	{string}	string			"Unauthorized"
 //	@Failure		500	{string}	string			"Internal server error"
-//	@Router			/relay [get]
+//	@Router			/relays [get]
 func (app *App) HandleRelayGetAll() http.Handler {
 	return http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
@@ -83,27 +83,26 @@ func (app *App) HandleRelayGetAll() http.Handler {
 		})
 }
 
-// HandleRelaySet sets the state of a relay to on or off.
+// HandleRelaySet sets the state of a specific relay.
 //
 //	@Summary		Set relay state
-//	@Description	Switches the given relay to the requested state. Valid states: on, off.
-//	@Tags			relay
+//	@Description	Sets the state of a specific relay by name.
+//	@Tags			relays
 //	@Produce		json
 //	@Security		ApiKeyAuth
-//	@Param			name	path		string			true	"Relay name (e.g. relay1)"
-//	@Param			state	path		string			true	"Target state"	Enums(on, off)
-//	@Success		200		{object}	HTTPResponse	"Updated relay state"
-//	@Failure		400		{string}	string			"Bad request – unknown state"
+//	@Param			name	path		string			true	"Relay name"
+//	@Param			state	header		string			true	"Relay state (on/off)"
+//	@Success		200		{object}	HTTPResponse	"Relay state successfully set"
+//	@Failure		400		{string}	string			"Bad request"
 //	@Failure		401		{string}	string			"Unauthorized"
 //	@Failure		404		{string}	string			"Relay not found"
-//	@Failure		500		{string}	string			"Internal server error"
-//	@Router			/relay/{name}/{state} [put]
+//	@Router			/relays/{name} [put]
 func (app *App) HandleRelaySet() http.Handler {
 	return http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 
 			name := r.PathValue("name")
-			state := r.PathValue("state")
+			state := r.Header.Get("state")
 
 			res, stat, err := app.relaySet(name, state)
 			if err != nil {
