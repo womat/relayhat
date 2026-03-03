@@ -158,7 +158,6 @@ func (app *App) HandleOSSignals() {
 			case syscall.SIGHUP:
 				slog.Info("SIGHUP received, initiating restart")
 				app.shutdownProcedure(ModeRestart)
-				signal.Reset()
 			case syscall.SIGTERM, syscall.SIGINT:
 				slog.Info("SIGTERM/SIGINT received, stopping")
 				app.shutdownProcedure(ModeStop)
