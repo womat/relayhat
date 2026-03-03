@@ -195,7 +195,6 @@ func (app *App) shutdownProcedure(mode int) {
 		slog.Info("Module stopped", "module", MODULE, "version", VERSION, "pid", os.Getpid())
 		app.shutdown <- struct{}{}
 		close(app.shutdown)
-		close(app.restart)
 	}
 }
 
