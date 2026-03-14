@@ -22,7 +22,7 @@ webserver:
   listenHost: 0.0.0.0
 
   # Port the HTTPS server listens on
-  listenPort: 8080
+  listenPort: 8443
 
   # Global API key for protected endpoints
   apiKey: changeme!

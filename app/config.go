@@ -54,7 +54,7 @@ func NewConfig() *Config {
 		LogDestination: "stdout",
 		Webserver: WebserverConfig{
 			ListenHost: "0.0.0.0",
-			ListenPort: 8080,
+			ListenPort: 8443,
 			BlockedIPs: []string{},
 			AllowedIPs: []string{},
 		},

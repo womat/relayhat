@@ -49,19 +49,19 @@ Authentication via the `X-API-Key` header.
 
 ```bash
 # Get all relays
-curl -k https://localhost:8080/relays \
+curl -k https://localhost:8443/relays \
   -H "X-API-Key: your-secret-key"
  
 # Get a single relay
-curl -k https://localhost:8080/relays/relay1 \
+curl -k https://localhost:8443/relays/relay1 \
   -H "X-API-Key: your-secret-key"
  
 # Turn relay on
-curl -k -X PUT https://localhost:8080/relays/relay1/on \
+curl -k -X PUT https://localhost:8443/relays/relay1/on \
   -H "X-API-Key: your-secret-key"
  
 # Turn relay off
-curl -k -X PUT https://localhost:8080/relays/relay1/off \
+curl -k -X PUT https://localhost:8443/relays/relay1/off \
   -H "X-API-Key: your-secret-key"
  
 ```
@@ -116,7 +116,7 @@ webserver:
   listenHost: 0.0.0.0
 
   # Port the HTTPS server listens on
-  listenPort: 8080
+  listenPort: 8443
 
   # Global API key for protected endpoints
   apiKey: changeme!
@@ -282,7 +282,7 @@ kill -HUP $(pidof relayhat)
 
 ```sh
 # Allow the configured port (default 8443)
-sudo ufw allow 8080/tcp
+sudo ufw allow 8443/tcp
 sudo ufw status
 ```
 
