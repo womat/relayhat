@@ -22,7 +22,7 @@ webserver:
   listenHost: 0.0.0.0
 
   # Port the HTTPS server listens on
-  listenPort: 443
+  listenPort: 8080
 
   # Global API key for protected endpoints
   apiKey: changeme!
@@ -63,4 +63,3 @@ relay:
   relay4:
     description: "gpio 27 only for Raspberry Pi 4 Channel Relay HAT"
     gpio: 27
-
