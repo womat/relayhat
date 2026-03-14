@@ -19,6 +19,7 @@ var (
 
 type State int
 
+// String returns the textual representation of the relay state.
 func (s State) String() string {
 	switch s {
 	case On:
@@ -33,6 +34,7 @@ type Relay struct {
 	gpioPin gpio.Pin
 }
 
+// New creates a relay for the given GPIO pin and initializes it to off.
 func New(pin int) (*Relay, error) {
 	p, err := rpi.NewPin(pin, rpi.WithMode(gpio.Output))
 	if err != nil {
@@ -47,19 +49,23 @@ func New(pin int) (*Relay, error) {
 	return &Relay{gpioPin: p}, nil
 }
 
+// Close releases the underlying GPIO pin resources.
 func (r *Relay) Close() error {
 	return r.gpioPin.Close()
 }
 
+// TurnOn switches the relay to the on state.
 func (r *Relay) TurnOn() error {
 	return r.gpioPin.SetValue(gpio.High)
 
 }
 
+// TurnOff switches the relay to the off state.
 func (r *Relay) TurnOff() error {
 	return r.gpioPin.SetValue(gpio.Low)
 }
 
+// Toggle switches the relay to the opposite state and returns the new state.
 func (r *Relay) Toggle() (State, error) {
 	s, err := r.GetState()
 	if err != nil {
@@ -76,6 +82,7 @@ func (r *Relay) Toggle() (State, error) {
 	return Unknown, ErrUnknownState
 }
 
+// GetState returns the relay's current state.
 func (r *Relay) GetState() (State, error) {
 	s, err := r.gpioPin.Value()
 	if err != nil {

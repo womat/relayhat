@@ -1,6 +1,3 @@
-// Package app provides HTTP handlers for application health and readiness checks.
-// Health returns runtime metrics; Ready is a Kubernetes readiness probe.
-
 package app
 
 import (

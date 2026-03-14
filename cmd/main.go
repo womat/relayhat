@@ -156,6 +156,7 @@ func run(configFile string, debug bool) int {
 	}
 }
 
+// About returns build and runtime metadata as YAML.
 func About() string {
 	info := map[string]string{
 		"Author":   "Wolfgang Mathe",
@@ -179,7 +180,7 @@ func About() string {
 
 // loadConfig loads the configuration from a YAML file, applies overrides and validates the configuration values.
 //
-// If debug mode is enabled, log level is forced to "debug" and logs are written to stdout.
+// loadConfig forces debug logging to stdout when debug mode is enabled.
 func loadConfig(configFile string, debug bool) (*app.Config, error) {
 
 	config, err := app.LoadConfig(configFile)

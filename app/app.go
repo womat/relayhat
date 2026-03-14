@@ -32,8 +32,7 @@ const (
 	ModeRestart = 1
 )
 
-// App is the main application struct.
-// App is where the application is wired up.
+// App holds the application's runtime state and lifecycle dependencies.
 type App struct {
 	wg         sync.WaitGroup // wait group to track running webserver
 	baseDir    string         // working directory
@@ -54,7 +53,7 @@ type Relay struct {
 	Description string
 }
 
-// New checks the Web server URL and initialize the main app structure
+// New constructs an App with the configured server address and lifecycle channels.
 func New(config *Config, baseDir string) *App {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -98,7 +97,7 @@ func (app *App) Run() (*App, error) {
 	return app, nil
 }
 
-// Init initializes the application.
+// Init initializes relays and HTTP routes from the current configuration.
 func (app *App) Init() error {
 
 	// register the relay
@@ -200,9 +199,7 @@ func (app *App) shutdownProcedure(mode int) {
 	}
 }
 
-// Cleanup releases application resources.
-// It's called when the application is shutdown or restarted.
-// Should be used to free up resources.
+// Cleanup releases application resources during shutdown or restart.
 func (app *App) Cleanup() error {
 	var errs error
 

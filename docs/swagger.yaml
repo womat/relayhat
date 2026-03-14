@@ -123,6 +123,7 @@ paths:
       summary: Get relay state
       tags:
       - relay
+  /relays/{name}/{state}:
     put:
       description: Sets the state of a specific relay by name.
       parameters:
@@ -132,7 +133,7 @@ paths:
         required: true
         type: string
       - description: Relay state (on/off)
-        in: header
+        in: path
         name: state
         required: true
         type: string

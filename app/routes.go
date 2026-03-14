@@ -1,16 +1,3 @@
-// Package app sets up HTTP routes and middleware for the application.
-// It supports authentication, Swagger documentation (dev only), and monitoring endpoints.
-// Routes:
-// - Public routes without authentication (e.g., version)
-// - Protected routes requiring API key or JWT
-// - Swagger documentation (only in development) at /swagger/
-// - Health, Live, Ready, Monitoring, and S0 data endpoints
-//
-// Middleware applied:
-// - CORS
-// - IP filtering (allowed/blocked IPs)
-//
-// This must be called during app startup before starting the HTTP server.
 package app
 
 import (
@@ -20,7 +7,7 @@ import (
 	"github.com/womat/golib/web"
 )
 
-// SetupRoutes configures all HTTP routes and global middleware for the application.
+// SetupRoutes configures the application's routes and shared HTTP middleware.
 func (app *App) SetupRoutes() {
 	webCfg := web.Config{
 		ApiKey:    app.config.Webserver.ApiKey,
@@ -53,6 +40,7 @@ func (app *App) SetupRoutes() {
 	app.web.Handler = handler
 }
 
+// WithLogging logs basic request metadata before calling the next handler.
 func WithLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		slog.Debug("Incoming web request",

@@ -136,7 +136,9 @@ const docTemplate = `{
                         }
                     }
                 }
-            },
+            }
+        },
+        "/relays/{name}/{state}": {
             "put": {
                 "security": [
                     {
@@ -163,7 +165,7 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Relay state (on/off)",
                         "name": "state",
-                        "in": "header",
+                        "in": "path",
                         "required": true
                     }
                 ],

@@ -14,11 +14,10 @@ const (
 	DevEnv  = "dev"
 )
 
-// Config holds the application configuration. Attention!
-// To make it possible to overwrite fields with the -overwrite command
-// line option each of the struct fields must be in the format
-// first letter uppercase -> followed by CamelCase as in the config file.
-// Config defines the struct of global config and the struct of the configuration file
+// Config holds the application's YAML configuration.
+//
+// Field names stay exported and use CamelCase so they can be targeted by future
+// command-line overwrite support.
 type Config struct {
 	Env            string          `yaml:"env"`            // Application environment: dev | prod
 	LogLevel       string          `yaml:"logLevel"`       // Log level: debug | info | warning | error
@@ -47,6 +46,7 @@ type RelayConfig struct {
 	Description string `yaml:"description"`
 }
 
+// NewConfig returns a Config initialized with default values.
 func NewConfig() *Config {
 	return &Config{
 		Env:            DevEnv,

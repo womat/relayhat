@@ -93,7 +93,7 @@ func (app *App) HandleRelayGetAll() http.Handler {
 //	@Produce		json
 //	@Security		ApiKeyAuth
 //	@Param			name	path		string			true	"Relay name"
-//	@Param			state	header		string			true	"Relay state (on/off)"
+//	@Param			state	path		string			true	"Relay state (on/off)"
 //	@Success		200		{object}	HTTPResponse	"Relay state successfully set"
 //	@Failure		400		{string}	string			"Bad request"
 //	@Failure		401		{string}	string			"Unauthorized"
@@ -148,18 +148,16 @@ func (app *App) relaySet(name, state string) (HTTPResponse, int, error) {
 	switch state {
 	case "on":
 		if err := r.TurnOn(); err != nil {
-			slog.Info("Relay set", "name", name, "state", state)
 			return HTTPResponse{}, http.StatusInternalServerError, err
-
 		}
 	case "off":
 		if err := r.TurnOff(); err != nil {
-			slog.Info("Relay set", "name", name, "state", state)
 			return HTTPResponse{}, http.StatusInternalServerError, err
 		}
 	default:
 		return HTTPResponse{}, http.StatusBadRequest, errInvalidState
 	}
 
+	slog.Info("Relay set", "name", name, "state", state)
 	return app.relayGet(name)
 }
