@@ -44,7 +44,7 @@ func (app *App) SetupRoutes() {
 	mux.Handle("GET /health", web.WithAuth(app.HandleHealth(), webCfg))
 	mux.Handle("GET /relays", web.WithAuth(app.HandleRelayGetAll(), webCfg))
 	mux.Handle("GET /relays/{name}", web.WithAuth(app.HandleRelayGetOne(), webCfg))
-	mux.Handle("PUT /relays/{name}", web.WithAuth(app.HandleRelaySet(), webCfg))
+	mux.Handle("PUT /relays/{name}/{state}", web.WithAuth(app.HandleRelaySet(), webCfg))
 
 	// Apply global middleware: CORS + IP filter
 	handler := web.WithCORS(mux)

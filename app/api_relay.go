@@ -4,7 +4,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"relayhat/pkg/relay"
 	"sort"
 
 	"github.com/womat/golib/web"
@@ -12,6 +11,7 @@ import (
 
 var (
 	errRelayNotFound = errors.New("relay not found")
+	errInvalidState  = errors.New("invalid state: must be \"on\" or \"off\"") // ← neu
 )
 
 type HTTPResponse struct {
@@ -63,10 +63,12 @@ func (app *App) HandleRelayGetAll() http.Handler {
 	return http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			// sort relay names for consistent output
+			app.mu.RLock()
 			names := make([]string, 0, len(app.relays))
 			for n := range app.relays {
 				names = append(names, n)
 			}
+			app.mu.RUnlock()
 			sort.Strings(names)
 
 			res := make([]HTTPResponse, 0, len(names))
@@ -96,13 +98,13 @@ func (app *App) HandleRelayGetAll() http.Handler {
 //	@Failure		400		{string}	string			"Bad request"
 //	@Failure		401		{string}	string			"Unauthorized"
 //	@Failure		404		{string}	string			"Relay not found"
-//	@Router			/relays/{name} [put]
+//	@Router			/relays/{name}/{state} [put]
 func (app *App) HandleRelaySet() http.Handler {
 	return http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 
 			name := r.PathValue("name")
-			state := r.Header.Get("state")
+			state := r.PathValue("state")
 
 			res, stat, err := app.relaySet(name, state)
 			if err != nil {
@@ -110,13 +112,14 @@ func (app *App) HandleRelaySet() http.Handler {
 				return
 			}
 
-			slog.Info("Relay set", "name", name, "state", state)
 			web.Encode(w, http.StatusOK, res)
 		})
 }
 
 func (app *App) relayGet(name string) (HTTPResponse, int, error) {
+	app.mu.RLock()
 	r, ok := app.relays[name]
+	app.mu.RUnlock()
 	if !ok {
 		return HTTPResponse{}, http.StatusNotFound, errRelayNotFound
 	}
@@ -134,7 +137,10 @@ func (app *App) relayGet(name string) (HTTPResponse, int, error) {
 }
 
 func (app *App) relaySet(name, state string) (HTTPResponse, int, error) {
+	app.mu.RLock()
 	r, ok := app.relays[name]
+	app.mu.RUnlock()
+
 	if !ok {
 		return HTTPResponse{}, http.StatusNotFound, errRelayNotFound
 	}
@@ -142,15 +148,17 @@ func (app *App) relaySet(name, state string) (HTTPResponse, int, error) {
 	switch state {
 	case "on":
 		if err := r.TurnOn(); err != nil {
+			slog.Info("Relay set", "name", name, "state", state)
 			return HTTPResponse{}, http.StatusInternalServerError, err
 
 		}
 	case "off":
 		if err := r.TurnOff(); err != nil {
+			slog.Info("Relay set", "name", name, "state", state)
 			return HTTPResponse{}, http.StatusInternalServerError, err
 		}
 	default:
-		return HTTPResponse{}, http.StatusBadRequest, relay.ErrUnknownState
+		return HTTPResponse{}, http.StatusBadRequest, errInvalidState
 	}
 
 	return app.relayGet(name)

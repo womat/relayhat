@@ -44,6 +44,7 @@ type App struct {
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 
+	mu     sync.RWMutex // protects app.relays
 	relays map[string]Relay
 }
 
@@ -103,6 +104,7 @@ func (app *App) Init() error {
 	// register the relay
 	// Re-initialise the relay map on every call so that relay names removed
 	// from the config do not survive a SIGHUP hot-reload into the next run.
+	app.mu.Lock()
 	app.relays = make(map[string]Relay)
 	for name, config := range app.config.Relays {
 		slog.Info("Register relay", "name", name, "gpio", config.GPIO)
@@ -118,10 +120,11 @@ func (app *App) Init() error {
 		}
 	}
 
+	app.mu.Unlock()
+
 	// initRoutes should always be called at the end
 	slog.Debug("Initializing API routes")
 	app.SetupRoutes()
-
 	return nil
 }
 
