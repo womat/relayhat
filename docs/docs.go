@@ -46,7 +46,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/relay": {
+        "/relays": {
             "get": {
                 "security": [
                     {
@@ -86,7 +86,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/relay/{name}": {
+        "/relays/{name}": {
             "get": {
                 "security": [
                     {
@@ -136,52 +136,46 @@ const docTemplate = `{
                         }
                     }
                 }
-            }
-        },
-        "/relay/{name}/{state}": {
+            },
             "put": {
                 "security": [
                     {
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Switches the given relay to the requested state. Valid states: on, off.",
+                "description": "Sets the state of a specific relay by name.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "relay"
+                    "relays"
                 ],
                 "summary": "Set relay state",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Relay name (e.g. relay1)",
+                        "description": "Relay name",
                         "name": "name",
                         "in": "path",
                         "required": true
                     },
                     {
-                        "enum": [
-                            "on",
-                            "off"
-                        ],
                         "type": "string",
-                        "description": "Target state",
+                        "description": "Relay state (on/off)",
                         "name": "state",
-                        "in": "path",
+                        "in": "header",
                         "required": true
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "Updated relay state",
+                        "description": "Relay state successfully set",
                         "schema": {
                             "$ref": "#/definitions/app.HTTPResponse"
                         }
                     },
                     "400": {
-                        "description": "Bad request – unknown state",
+                        "description": "Bad request",
                         "schema": {
                             "type": "string"
                         }
@@ -194,12 +188,6 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Relay not found",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
                         "schema": {
                             "type": "string"
                         }

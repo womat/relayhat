@@ -20,12 +20,6 @@ import (
 	"github.com/womat/golib/web"
 )
 
-// API route constants
-const (
-	PathVersion = "/version"
-	PathHealth  = "/health"
-)
-
 // SetupRoutes configures all HTTP routes and global middleware for the application.
 func (app *App) SetupRoutes() {
 	webCfg := web.Config{
@@ -44,13 +38,13 @@ func (app *App) SetupRoutes() {
 	app.registerSwaggerRoute(mux)
 
 	// Public routes
-	mux.Handle("GET "+PathVersion, app.HandleVersion())
+	mux.Handle("GET /version", app.HandleVersion())
 
 	// Protected routes
-	mux.Handle("GET "+PathHealth, web.WithAuth(app.HandleHealth(), webCfg))
-	mux.Handle("GET /relay", web.WithAuth(app.HandleRelayGetAll(), webCfg))
-	mux.Handle("GET /relay/{name}", web.WithAuth(app.HandleRelayGetOne(), webCfg))
-	mux.Handle("PUT /relay/{name}/{state}", web.WithAuth(app.HandleRelaySet(), webCfg))
+	mux.Handle("GET /health", web.WithAuth(app.HandleHealth(), webCfg))
+	mux.Handle("GET /relays", web.WithAuth(app.HandleRelayGetAll(), webCfg))
+	mux.Handle("GET /relays/{name}", web.WithAuth(app.HandleRelayGetOne(), webCfg))
+	mux.Handle("PUT /relays/{name}", web.WithAuth(app.HandleRelaySet(), webCfg))
 
 	// Apply global middleware: CORS + IP filter
 	handler := web.WithCORS(mux)

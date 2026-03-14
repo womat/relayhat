@@ -64,7 +64,7 @@ paths:
       summary: Get health data
       tags:
       - info
-  /relay:
+  /relays:
     get:
       description: Returns name, state (on/off) and description for every configured
         relay.
@@ -90,7 +90,7 @@ paths:
       summary: List all relays
       tags:
       - relay
-  /relay/{name}:
+  /relays/{name}:
     get:
       description: Returns name, state (on/off) and description for the given relay.
       parameters:
@@ -123,21 +123,16 @@ paths:
       summary: Get relay state
       tags:
       - relay
-  /relay/{name}/{state}:
     put:
-      description: 'Switches the given relay to the requested state. Valid states:
-        on, off.'
+      description: Sets the state of a specific relay by name.
       parameters:
-      - description: Relay name (e.g. relay1)
+      - description: Relay name
         in: path
         name: name
         required: true
         type: string
-      - description: Target state
-        enum:
-        - "on"
-        - "off"
-        in: path
+      - description: Relay state (on/off)
+        in: header
         name: state
         required: true
         type: string
@@ -145,11 +140,11 @@ paths:
       - application/json
       responses:
         "200":
-          description: Updated relay state
+          description: Relay state successfully set
           schema:
             $ref: '#/definitions/app.HTTPResponse'
         "400":
-          description: Bad request – unknown state
+          description: Bad request
           schema:
             type: string
         "401":
@@ -160,15 +155,11 @@ paths:
           description: Relay not found
           schema:
             type: string
-        "500":
-          description: Internal server error
-          schema:
-            type: string
       security:
       - ApiKeyAuth: []
       summary: Set relay state
       tags:
-      - relay
+      - relays
   /version:
     get:
       description: Returns the current application name and version. No authentication
