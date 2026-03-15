@@ -139,7 +139,7 @@ const docTemplate = `{
             }
         },
         "/relays/{name}/{state}": {
-            "put": {
+            "patch": {
                 "security": [
                     {
                         "ApiKeyAuth": []

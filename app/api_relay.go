@@ -98,7 +98,7 @@ func (app *App) HandleRelayGetAll() http.Handler {
 //	@Failure		400		{string}	string			"Bad request"
 //	@Failure		401		{string}	string			"Unauthorized"
 //	@Failure		404		{string}	string			"Relay not found"
-//	@Router			/relays/{name}/{state} [put]
+//	@Router			/relays/{name}/{state} [patch]
 func (app *App) HandleRelaySet() http.Handler {
 	return http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {

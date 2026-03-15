@@ -124,7 +124,7 @@ paths:
       tags:
       - relay
   /relays/{name}/{state}:
-    put:
+    patch:
       description: Sets the state of a specific relay by name.
       parameters:
       - description: Relay name
