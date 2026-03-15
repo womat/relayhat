@@ -42,11 +42,11 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"relayhat/app"
 	"runtime"
 	"time"
 
 	"github.com/womat/golib/xlog"
+	"github.com/womat/relayhat/app"
 	"gopkg.in/yaml.v3"
 )
 

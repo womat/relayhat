@@ -9,10 +9,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"relayhat/pkg/relay"
 	"strconv"
 	"sync"
 	"syscall"
+
+	"github.com/womat/relayhat/pkg/relay"
 )
 
 // VERSION holds the version information with the following logic in mind

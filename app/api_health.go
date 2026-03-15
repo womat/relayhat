@@ -2,9 +2,9 @@ package app
 
 import (
 	"net/http"
-	"relayhat/app/service/health"
 
 	"github.com/womat/golib/web"
+	"github.com/womat/relayhat/app/service/health"
 )
 
 // HandleHealth returns the current health data of the application.

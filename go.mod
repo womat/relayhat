@@ -1,4 +1,4 @@
-module relayhat
+module github.com/womat/relayhat
 
 go 1.25.0
 
