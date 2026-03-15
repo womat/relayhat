@@ -25,7 +25,7 @@ import (
 // VERSION differs from semantic versioning as described in https://semver.org/
 // but we keep the correct syntax.
 const (
-	VERSION = "1.6.3+20260314"
+	VERSION = "1.6.3+20260315"
 	MODULE  = "relayhat"
 
 	ModeStop    = 0

@@ -41,7 +41,7 @@ protects requests with an API key.
 | GET    | `/health`                | API Key | Runtime health metrics   |
 | GET    | `/relays`                | API Key | List all relays          
 | GET    | `/relays/{name}`         | API Key | Get relay state          |
-| PUT    | `/relays/{name}/{state}` | API Key | Set relay (`on` / `off`) |
+| PATCH  | `/relays/{name}/{state}` | API Key | Set relay (`on` / `off`) |
 
 Authentication via the `X-API-Key` header.
 
@@ -57,11 +57,11 @@ curl -k https://localhost:8443/relays/relay1 \
   -H "X-API-Key: your-secret-key"
  
 # Turn relay on
-curl -k -X PUT https://localhost:8443/relays/relay1/on \
+curl -k -X PATCH https://localhost:8443/relays/relay1/on \
   -H "X-API-Key: your-secret-key"
  
 # Turn relay off
-curl -k -X PUT https://localhost:8443/relays/relay1/off \
+curl -k -X PATCH https://localhost:8443/relays/relay1/off \
   -H "X-API-Key: your-secret-key"
  
 ```
@@ -93,7 +93,6 @@ CONFIG_FILE=/etc/tadl/config.yaml tadl
 
 Default location: `/opt/relayhat/etc/config.yaml`
 Environment variables are expanded inside the file, e.g. `apiKey: ${TADL_API_KEY}`.
-
 
 ```yaml
 # logLevel defines the minimum log level.
