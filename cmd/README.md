@@ -1,20 +1,19 @@
 # relayhat
 
-# relayhat
-
-relayhat is a Go service that exposes an HTTPS REST API for BC Robotics Relay HATs on Raspberry Pi.
+**relayhat** is a Go service that exposes an HTTPS REST API for BC Robotics Relay HATs on Raspberry Pi.
 
 It supports the 2-channel Pi Zero Relay HAT and the 4-channel Relay HAT, loads its relay layout from YAML config, and
 protects requests with an API key.
 
-## Features
+---
 
-- REST API with API key authentication
-- HTTPS with auto-fallback to embedded self-signed cert (dev)
-- IP allowlist / blocklist
-- Graceful shutdown and hot-reload via SIGHUP
-- Swagger UI (optional build tag)
-- GPIO relay control via [go-gpiocdev](https://github.com/warthog618/go-gpiocdev)
+## Usage
+
+```text
+relayhat [--config FILE] [--debug] [--version] [--about] [--help]
+```
+
+---
 
 ## Hardware
 
@@ -49,4 +48,5 @@ CONFIG_FILE=/etc/tadl/config.yaml tadl
 ## Configuration
 
 The configuration file is a YAML file. By default it is loaded from `/opt/relayhat/etc/config.yaml`.
+
 Environment variables are expanded inside the file, e.g. `apiKey: ${TADL_API_KEY}`.

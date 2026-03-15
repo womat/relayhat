@@ -7,12 +7,14 @@ protects requests with an API key.
 
 ---
 
-## Project overview
+## Features
 
-- HTTPS REST API for relay control and health checks
-- Config-driven relay registration from `config/config.yaml`
-- Graceful shutdown and `SIGHUP`-based reloads
-- Optional Swagger UI via the `swagger` build tag
+-  supports the **2-channel Pi Zero Relay HAT** and the **4-channel Relay HAT**
+- Exposes a secured **HTTPS REST API** (API key authentication)
+- **IP allowlist / blocklist** support
+- **Hot-reload** of configuration via `SIGHUP`
+- Embedded self-signed TLS certificate for development (no setup required)
+- Optional **Swagger UI** (build tag `swagger`, dev only)
 
 ---
 
