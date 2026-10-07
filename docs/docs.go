@@ -150,7 +150,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "relays"
+                    "relay"
                 ],
                 "summary": "Set relay state",
                 "parameters": [
@@ -190,6 +190,12 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Relay not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
                         "schema": {
                             "type": "string"
                         }

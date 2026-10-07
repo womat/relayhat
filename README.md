@@ -9,19 +9,21 @@ protects requests with an API key.
 
 ## Features
 
--  supports the **2-channel Pi Zero Relay HAT** and the **4-channel Relay HAT**
+- Supports the **2-channel Pi Zero Relay HAT** and the **4-channel Relay HAT**
 - Exposes a secured **HTTPS REST API** (API key authentication)
 - **IP allowlist / blocklist** support
-- **Hot-reload** of configuration via `SIGHUP`
-- Embedded self-signed TLS certificate for development (no setup required)
+- **Hot-reload** of configuration via `SIGHUP`; relays keep their state, a broken config is refused
+- Embedded self-signed TLS certificate for development (`env: dev` only)
 - Optional **Swagger UI** (build tag `swagger`, dev only)
 
 ---
 
 ## Where to start
 
-- Runtime, API, build, deploy, and Swagger usage: [`cmd/README.md`](cmd/README.md)
+- This README is the reference for API, configuration, installation, build and releases.
+- [`cmd/README.md`](cmd/README.md) is the short `--help` text of the binary.
 - Example configuration: [`config/config.yaml`](config/config.yaml)
+- Notes for working on the code: [`CLAUDE.md`](CLAUDE.md)
 - Swagger generation script: [`docs/generate.sh`](docs/generate.sh)
 
 ---
@@ -41,7 +43,7 @@ protects requests with an API key.
 |--------|--------------------------|---------|--------------------------|
 | GET    | `/version`               | –       | App name and version     |
 | GET    | `/health`                | API Key | Runtime health metrics   |
-| GET    | `/relays`                | API Key | List all relays          
+| GET    | `/relays`                | API Key | List all relays          |
 | GET    | `/relays/{name}`         | API Key | Get relay state          |
 | PATCH  | `/relays/{name}/{state}` | API Key | Set relay (`on` / `off`) |
 
@@ -74,19 +76,19 @@ curl -k -X PATCH https://localhost:8443/relays/relay1/off \
 
 | Flag        | Default                     | Description                                       |
 |-------------|-----------------------------|---------------------------------------------------|
-| `--config`  | `/opt/tadl/etc/config.yaml` | Path to the configuration file                    |
+| `--config`  | `/opt/relayhat/etc/config.yaml` | Path to the configuration file                    |
 | `--debug`   | `false`                     | Enable debug logging to stdout (overrides config) |
 | `--version` | `false`                     | Print the application version and exit            |
 | `--about`   | `false`                     | Print application details and exit                |
 | `--help`    | `false`                     | Print this help message and exit                  |
 
-The config file path can also be set via the environment variable `CONFIG_FILE`.
+The config file path can also be set via the environment variable `CONFIG_FILE`; `--config` wins over it.
 
 ```sh
-tadl --config /etc/tadl/config.yaml
-tadl --debug
-tadl --version
-CONFIG_FILE=/etc/tadl/config.yaml tadl
+relayhat --config /etc/relayhat/config.yaml
+relayhat --debug
+relayhat --version
+CONFIG_FILE=/etc/relayhat/config.yaml relayhat
 ```
 
 ---
@@ -94,19 +96,36 @@ CONFIG_FILE=/etc/tadl/config.yaml tadl
 ## Configuration
 
 Default location: `/opt/relayhat/etc/config.yaml`
-Environment variables are expanded inside the file, e.g. `apiKey: ${TADL_API_KEY}`.
+
+- `${VAR}` is replaced with the environment variable `VAR`, e.g. `apiKey: ${RELAYHAT_API_KEY}`. Only this form is
+  expanded; a bare `$` stays as it is, so keys containing `$` are safe.
+- Unknown keys are an error, so a typo cannot silently fall back to a default.
+- The configuration is validated on start and before every reload: `env` is `dev` or `prod`, `apiKey` is set,
+  every relay uses a GPIO between 2 and 27, and no GPIO is used twice.
+- A weak `apiKey` (the example value or shorter than 16 characters) does not stop the service but is logged as a
+  warning.
 
 ```yaml
+# =============================================================================
+# relayhat configuration
+#
+# ${VAR} is replaced with the environment variable VAR (only this form, a bare
+# "$" stays as it is), e.g. apiKey: ${RELAYHAT_API_KEY}.
+# Unknown keys are an error, so a typo cannot silently fall back to a default.
+# =============================================================================
+
 # logLevel defines the minimum log level.
 # Messages with at least this level are logged.
 # Allowed values: debug | info | warn | error
 logLevel: info
 
 # logDestination defines where logs are written to.
-# Supported values: stdout | stderr | /path/to/logfile
+# Supported values: stdout | stderr | null | /path/to/logfile
 logDestination: stdout
 
 # environment: dev | prod
+# dev falls back to the embedded self-signed certificate when certFile is
+# missing; prod refuses to start without certFile.
 env: dev
 
 # =============================================================================
@@ -119,7 +138,8 @@ webserver:
   # Port the HTTPS server listens on
   listenPort: 8443
 
-  # Global API key for protected endpoints
+  # Global API key for protected endpoints, sent as X-API-Key header.
+  # Use a random key of at least 16 characters; the example value is logged as a warning.
   apiKey: changeme!
 
   # TLS private key file
@@ -130,20 +150,24 @@ webserver:
 
   # Blocked IP addresses or networks (empty = none blocked)
   # Examples: 192.168.0.1, 192.168.0.0/16, 10.0.0.0/8
-  blockedIPs: [ ]
+  blockedIPs: []
   #  - 192.168.0.1
   #  - 192.168.0.0/16
 
   # Allowed IP addresses or networks (empty = all allowed)
   # Note: ::1 is the IPv6 loopback address
   # Examples: 127.0.0.1, ::1, 192.168.0.0/16
-  allowedIPs: [ ]
+  allowedIPs: []
   #  - 127.0.0.1
   #  - ::1
   #  - 192.168.0.0/16
 
 # =============================================================================
 # relay configuration
+#
+# name: relay name used in the API (/relays/{name})
+# gpio: BCM number 2..27, each gpio at most once
+# A SIGHUP reload keeps the state of every relay whose gpio stays configured.
 # =============================================================================
 relay:
   relay1:
@@ -164,7 +188,8 @@ relay:
 
 ## TLS Certificate
 
-For development the application falls back to an embedded self-signed certificate automatically.
+With `env: dev` the application falls back to an embedded self-signed certificate when `certFile` does not exist.
+With `env: prod` a missing `certFile` is a start-up error, because the embedded private key ships in every binary.
 For production, generate your own:
 
 ```sh
@@ -225,7 +250,8 @@ After=network.target
 User=relayhat
 Group=relayhat
 Type=simple
-ExecStart=/opt/relayhat/bin/relayhat 
+ExecStart=/opt/relayhat/bin/relayhat
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 
 [Install]
@@ -248,21 +274,43 @@ journalctl -u relayhat -n 50 -f
 
 ## Build
 
+The GPIO dependency only compiles for Linux, and the embedded development certificate is generated by `make`, so
+build through the Makefile:
+
 ```sh
-# Raspberry Pi 4/5 (64-bit OS)
-make build_arm64
+make build_arm6         # every Pi in 32-bit mode; required for Pi 1 / Zero
+make build_arm7         # Raspberry Pi 2/3/4/5, 32-bit OS
+make build_arm64        # Raspberry Pi 3/4/5/400/Zero 2 W, 64-bit OS
+make build_arm6_dev     # with Swagger UI (dev only), _dev variants exist per arch
+make test               # tests with race detector (Linux; on macOS see below)
+make deploy             # build for PI_ARCH (default arm6) and copy to the Pi
+```
 
-# Raspberry Pi 2/3/4 (32-bit OS)
-make build_arm7
+On macOS the tests run in a container:
 
-# Raspberry Pi 1 / Zero (32-bit OS)
-make build_arm6
+```sh
+docker run --rm -v "$PWD":/src -w /src golang:1.27 make test
+```
 
-# Build with Swagger UI (dev only)
-make build_arm64_dev
+The deploy targets read `PI_USER`, `PI_HOST` and `PI_PATH` from the environment, so the real host stays out of the
+repository:
 
-# Build and deploy to Raspberry Pi via SCP
-make deploy
+```sh
+set -Ux PI_USER pi       # fish; bash/zsh: export PI_USER=pi in the shell profile
+set -Ux PI_HOST my-pi
+```
+
+For a project-specific device, put the same names into the gitignored `Makefile.local` (`PI_HOST := my-pi`).
+
+## Releases
+
+The Git tag is the single source of truth for the version (SemVer); it is injected via `-ldflags`. Releases are cut
+from `main` after merging `develop`:
+
+```sh
+make merge_to_main
+make release TAG=v1.7.0      # GitHub Actions runs GoReleaser for arm64, armv7 and armv6
+make deploy_release TAG=v1.7.0
 ```
 
 ---
@@ -276,6 +324,10 @@ sudo systemctl reload relayhat
 # or
 kill -HUP $(pidof relayhat)
 ```
+
+The config file is validated first; if it is broken, the reload is refused, logged, and the service keeps running
+unchanged. Relays whose GPIO is still configured keep their state across the reload (also when they are renamed),
+removed relays are switched off, new ones start switched off. A stop (`SIGTERM`/`SIGINT`) switches all relays off.
 
 ---
 
@@ -300,6 +352,32 @@ sudo tar xzf /tmp/relayhat-backup.tar.gz -C /
 sudo chown -R relayhat:relayhat /opt/relayhat
 sudo systemctl restart relayhat
 ```
+
+---
+
+## License
+
+relayhat is released under the MIT License - see [`LICENSE`](LICENSE) for the full text.
+
+### Third-party licenses
+
+The source tree contains no third-party code, but a **compiled binary statically links** the
+modules below. Their terms apply to anyone distributing that binary, not to the sources here.
+
+| Module                                            | License                |
+|---------------------------------------------------|------------------------|
+| `github.com/womat/golib`                          | MIT                    |
+| `github.com/warthog618/go-gpiocdev`               | MIT                    |
+| `github.com/golang-jwt/jwt/v5`                    | MIT                    |
+| `gopkg.in/yaml.v3`                                | MIT and Apache-2.0     |
+| `golang.org/x/sys`                                | BSD-3-Clause           |
+| Swagger UI build only (`-tags swagger`):          |                        |
+| `github.com/swaggo/swag`, `http-swagger`, `files` | MIT                    |
+| `github.com/go-openapi/*`, `go.yaml.in/yaml/v3`   | Apache-2.0             |
+| `github.com/KyleBanks/depth`                      | MIT                    |
+| `golang.org/x/net`, `mod`, `sync`, `tools`        | BSD-3-Clause           |
+
+All of these are permissive; none obliges relayhat to change its license.
 
 ---
 

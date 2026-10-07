@@ -156,11 +156,15 @@ paths:
           description: Relay not found
           schema:
             type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
       security:
       - ApiKeyAuth: []
       summary: Set relay state
       tags:
-      - relays
+      - relay
   /version:
     get:
       description: Returns the current application name and version. No authentication

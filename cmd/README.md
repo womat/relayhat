@@ -13,40 +13,40 @@ protects requests with an API key.
 relayhat [--config FILE] [--debug] [--version] [--about] [--help]
 ```
 
----
+| Flag        | Default                         | Description                                       |
+|-------------|---------------------------------|---------------------------------------------------|
+| `--config`  | `/opt/relayhat/etc/config.yaml` | Path to the configuration file                    |
+| `--debug`   | `false`                         | Enable debug logging to stdout (overrides config) |
+| `--version` | `false`                         | Print the application version and exit            |
+| `--about`   | `false`                         | Print application details and exit                |
+| `--help`    | `false`                         | Print this help message and exit                  |
 
-## Hardware
-
-| Board                         | GPIO Pins used     |
-|-------------------------------|--------------------|
-| Pi Zero Relay HAT (2-channel) | GPIO 4, 17         |
-| Pi 4-Channel Relay HAT        | GPIO 4, 17, 22, 27 |
-
----
-
-## Command-Line Flags
-
-| Flag        | Default                     | Description                                       |
-|-------------|-----------------------------|---------------------------------------------------|
-| `--config`  | `/opt/tadl/etc/config.yaml` | Path to the configuration file                    |
-| `--debug`   | `false`                     | Enable debug logging to stdout (overrides config) |
-| `--version` | `false`                     | Print the application version and exit            |
-| `--about`   | `false`                     | Print application details and exit                |
-| `--help`    | `false`                     | Print this help message and exit                  |
-
-The config file path can also be set via the environment variable `CONFIG_FILE`.
-
-```sh
-tadl --config /etc/tadl/config.yaml
-tadl --debug
-tadl --version
-CONFIG_FILE=/etc/tadl/config.yaml tadl
-```
+The config file path can also be set via the environment variable `CONFIG_FILE`; `--config` wins over it.
 
 ---
 
-## Configuration
+## API
 
-The configuration file is a YAML file. By default it is loaded from `/opt/relayhat/etc/config.yaml`.
+| Method | Path                     | Auth    | Description              |
+|--------|--------------------------|---------|--------------------------|
+| GET    | `/version`               | –       | App name and version     |
+| GET    | `/health`                | API Key | Runtime health metrics   |
+| GET    | `/relays`                | API Key | List all relays          |
+| GET    | `/relays/{name}`         | API Key | Get relay state          |
+| PATCH  | `/relays/{name}/{state}` | API Key | Set relay (`on` / `off`) |
 
-Environment variables are expanded inside the file, e.g. `apiKey: ${TADL_API_KEY}`.
+Authentication via the `X-API-Key` header.
+
+---
+
+## Signals
+
+| Signal             | Effect                                                                                   |
+|--------------------|------------------------------------------------------------------------------------------|
+| `SIGHUP`           | Reload the config; a broken file is refused, configured relays keep their state           |
+| `SIGTERM`/`SIGINT` | Graceful stop, all relays are switched off                                               |
+
+---
+
+Configuration, installation, TLS and build: see `README.md` in the repository,
+https://github.com/womat/relayhat
