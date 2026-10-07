@@ -1,9 +1,9 @@
 # relayhat
 
-**relayhat** is a Go service that exposes an HTTPS REST API for BC Robotics Relay HATs on Raspberry Pi.
+**relayhat** switches the relays of a Raspberry Pi relay HAT through an HTTPS REST API and a built-in web page.
 
-It supports the 2-channel Pi Zero Relay HAT and the 4-channel Relay HAT, loads its relay layout from YAML config, and
-protects requests with an API key.
+It supports the BC Robotics 2-channel Pi Zero Relay HAT and 4-channel Relay HAT (and any active-high relay board on
+GPIO 2–27), loads its relay layout from a YAML config and protects requests with an API key.
 
 ---
 

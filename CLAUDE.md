@@ -40,7 +40,7 @@ Versioning is SemVer and the Git tag is the single source of truth. `.github/wor
 
 ### Screenshots
 
-The README screenshots (`docs/screenshots/web-ui*.png`) are rendered from the real `app/ui/index.html` with a mocked API in headless Chromium. The same script first clicks through the page (login, two-step switch, double tap, `Esc`, rejected key) and fails when it misbehaves — run it after every change to the page:
+The README screenshots (`docs/screenshots/web-ui*.png`) and `docs/social-preview.png` are rendered from the real `app/ui/index.html` with a mocked API in headless Chromium. The same script first clicks through the page (login, two-step switch, double tap, `Esc`, switch lock, rejected key) and fails when it misbehaves — run it after every change to the page. The example relays, host names and addresses are made up; keep real ones out of this public repository. After a visible change upload the social preview again under the repository's Settings → Social preview (GitHub has no API for it):
 
 ```sh
 docker run --rm -v "$PWD":/src -w /src mcr.microsoft.com/playwright/python:v1.52.0-noble \
