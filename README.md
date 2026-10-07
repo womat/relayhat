@@ -11,8 +11,10 @@ protects requests with an API key.
 
 - Supports the **2-channel Pi Zero Relay HAT** and the **4-channel Relay HAT**
 - Exposes a secured **HTTPS REST API** (API key authentication)
+- **Web page** to see and switch the relays, with a two-step confirmation against accidental taps
 - **IP allowlist / blocklist** support
 - **Hot-reload** of configuration via `SIGHUP`; relays keep their state, a broken config is refused
+- Configurable **start state** per relay (`off`, `on`, or the `last` state) and a record of the last switch
 - Embedded self-signed TLS certificate for development (`env: dev` only)
 - Optional **Swagger UI** (build tag `swagger`, dev only)
 
@@ -41,6 +43,7 @@ protects requests with an API key.
 
 | Method | Path                     | Auth    | Description              |
 |--------|--------------------------|---------|--------------------------|
+| GET    | `/`                      | –       | Web page (see below)     |
 | GET    | `/version`               | –       | App name and version     |
 | GET    | `/health`                | API Key | Runtime health metrics   |
 | GET    | `/relays`                | API Key | List all relays          |
@@ -50,6 +53,29 @@ protects requests with an API key.
 Authentication via the `X-API-Key` header. Errors are returned as `{"error": "..."}` with the HTTP status
 (401, 404, 400 for an invalid state); a 500 carries only `internal server error`, the cause is in the log.
 Every switch is logged with relay, GPIO, old and new state and the client address.
+
+A relay is returned as:
+
+```json
+{
+  "name": "relay1",
+  "state": "off",
+  "description": "Utility lock signal of the heat pump",
+  "gpio": 4,
+  "display": { "label": "Heat pump", "color": "red", "onText": "Locked", "offText": "Released" },
+  "lastChange": {
+    "time": "2026-10-07T14:02:13+02:00",
+    "ageSeconds": 2820.4,
+    "source": "api",
+    "client": "192.168.65.20",
+    "host": "nodered.fritz.box"
+  }
+}
+```
+
+`display` comes from the configuration and is meant for the web page. `lastChange` is the last switch: `source` is
+`api`, or `start` when relayhat switched the relay to its start state; `host` is the client's reverse DNS name, looked
+up after the switch and missing when there is none. `lastChange` is kept in the `stateFile` and survives a restart.
 
 ### Examples
 
@@ -71,6 +97,30 @@ curl -k -X PATCH https://localhost:8443/relays/relay1/off \
   -H "X-API-Key: your-secret-key"
  
 ```
+
+---
+
+## Web UI
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/web-ui-dark.png">
+  <img src="docs/screenshots/web-ui.png" alt="relayhat web page with two relay cards: the EVU lock waiting for the second tap, the PV surplus relay switched on">
+</picture>
+
+Open `https://<pi>:<listenPort>/` in a browser. The page asks for the API key once, keeps it in the browser's
+local storage and sends it as `X-API-Key`; **Sign out** forgets it.
+
+- One card per relay with its `label`, `description` and GPIO, a pilot light in the relay's `color`, the state
+  (`onText`/`offText`) and how long it has been in it, and the last switch with the client's host name.
+- **Two-step switching**: the first tap arms the button (`Confirm: …`, a bar runs down for 3 seconds), only a
+  second tap within that time switches. A fast double tap, `Esc` or the timeout cancel. When another client switches
+  the relay meanwhile, the pending confirmation is dropped.
+- Refreshes every 3 seconds while the tab is visible; if the Pi does not answer, a banner says so and the values are
+  greyed out.
+- Self-contained: no external fonts or scripts, so it works on a network without internet access.
+
+The page itself is public, as it holds no data; everything it shows and switches goes through the API key. Limit who
+can reach it with `allowedIPs`, e.g. to your home network.
 
 ---
 
@@ -109,6 +159,10 @@ Default location: `/opt/relayhat/etc/config.yaml`
 - `startState` per relay sets the state after the process starts: `off` (default), `on`, or `last` – the state
   before, read from `stateFile`. A missing, empty or damaged state file is not an error; the relays with `last` then
   start off and the log says why.
+- `stateFile` also keeps the last switch of every relay, so the web page shows it after a restart. It is written on
+  start and after every switch; `stateFile: ""` keeps nothing. The format of 1.7 (`relay1: on`) is still read.
+- `label`, `color`, `onText` and `offText` only change how the web page shows a relay; `color` is `green`, `red` or
+  `amber`.
 
 ```yaml
 # =============================================================================
@@ -133,9 +187,10 @@ logDestination: stdout
 # missing; prod refuses to start without certFile.
 env: dev
 
-# stateFile keeps the last state of every relay for startState: last. It is
+# stateFile keeps the state of every relay and its last switch (when, by which
+# client), for startState: last and the "Last switch" in the web page. It is
 # written after every switch and once on start; the directory must exist and be
-# writable. Only used when a relay has startState: last.
+# writable. Set it to "" to keep nothing (startState: last then needs a file).
 stateFile: /opt/relayhat/data/state.yaml
 
 # =============================================================================
@@ -185,20 +240,33 @@ webserver:
 # A SIGHUP reload keeps the state of every relay whose gpio stays configured;
 # startState applies only to relays that are added by the reload.
 # A stop (SIGTERM/SIGINT) switches all relays off.
+#
+# Web page only (optional, the API paths stay /relays/{name}):
+#   label:   name on the card, default the relay name
+#   color:   pilot light when on: green (default) | red | amber
+#   onText:  word for the on state, default ON
+#   offText: word for the off state, default OFF
+#
+# gpio 4 and 17: Pi Zero Relay HAT and 4-Channel Relay HAT;
+# gpio 22 and 27: 4-Channel Relay HAT only.
 # =============================================================================
 relay:
   relay1:
-    description: "gpio 4 available for Raspberry Pi 4 Channel Relay HAT and Raspberry Pi Zero Relay HAT"
+    label: "Heat pump"
+    description: "Utility lock signal of the heat pump"
     gpio: 4
     startState: off
+    color: red
+    onText: "Locked"
+    offText: "Released"
   relay2:
-    description: "gpio 17 available for Raspberry Pi 4 Channel Relay HAT and Raspberry Pi Zero Relay HAT"
+    description: "gpio 17, Pi Zero Relay HAT and 4-Channel Relay HAT"
     gpio: 17
   relay3:
-    description: "gpio 22 only for Raspberry Pi 4 Channel Relay HAT"
+    description: "gpio 22, 4-Channel Relay HAT only"
     gpio: 22
   relay4:
-    description: "gpio 27 only for Raspberry Pi 4 Channel Relay HAT"
+    description: "gpio 27, 4-Channel Relay HAT only"
     gpio: 27
 ```
 
@@ -326,7 +394,7 @@ kill -HUP $(pidof relayhat)
 
 The config file is validated first; if it is broken, the reload is refused, logged, and the service keeps running
 unchanged. Relays whose GPIO is still configured keep their state across the reload (also when they are renamed),
-removed relays are switched off, new ones start in their `startState`.
+removed relays are switched off, new ones start in their `startState`. The last switch of a relay is kept as well.
 
 | Event                                       | Relay state afterwards                          |
 |---------------------------------------------|-------------------------------------------------|

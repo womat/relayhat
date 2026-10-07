@@ -1,13 +1,20 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/womat/golib/web"
 )
+
+// lookupTimeout bounds the reverse DNS lookup of a client after a switch.
+const lookupTimeout = 2 * time.Second
 
 var (
 	errRelayNotFound = errors.New("relay not found")
@@ -16,9 +23,29 @@ var (
 
 // HTTPResponse is the JSON representation of a relay.
 type HTTPResponse struct {
-	Name        string `json:"name"`
-	State       string `json:"state"`
-	Description string `json:"description"`
+	Name        string          `json:"name"`
+	State       string          `json:"state"`
+	Description string          `json:"description"`
+	GPIO        int             `json:"gpio"`
+	Display     Display         `json:"display"`
+	LastChange  *LastChangeInfo `json:"lastChange,omitempty"` // absent when unknown
+}
+
+// Display holds how the web UI shows a relay, from its configuration.
+type Display struct {
+	Label   string `json:"label"`             // the relay name unless configured
+	Color   string `json:"color"`             // pilot light colour when on: green, red or amber
+	OnText  string `json:"onText,omitempty"`  // word for the on state, ON when empty
+	OffText string `json:"offText,omitempty"` // word for the off state, OFF when empty
+}
+
+// LastChangeInfo is the last switch of a relay.
+type LastChangeInfo struct {
+	Time       string  `json:"time"`             // RFC 3339, in the Pi's time zone
+	AgeSeconds float64 `json:"ageSeconds"`       // seconds since Time, by the Pi's clock
+	Source     string  `json:"source"`           // api, or start when relayhat switched it on start
+	Client     string  `json:"client,omitempty"` // IP address of the API client
+	Host       string  `json:"host,omitempty"`   // reverse DNS name of the client, when it has one
 }
 
 // HandleRelayGetOne returns the state of a single relay by name.
@@ -132,14 +159,37 @@ func (app *App) relayGet(name string) (HTTPResponse, int, error) {
 		return HTTPResponse{}, http.StatusInternalServerError, err
 	}
 
-	return HTTPResponse{
+	label := r.Config.Label
+	if label == "" {
+		label = name
+	}
+	res := HTTPResponse{
 		Name:        name,
 		State:       s.String(),
-		Description: r.Description,
-	}, http.StatusOK, nil
+		Description: r.Config.Description,
+		GPIO:        r.GPIO(),
+		Display: Display{
+			Label:   label,
+			Color:   r.Config.color(),
+			OnText:  r.Config.OnText,
+			OffText: r.Config.OffText,
+		},
+	}
+	if c := r.LastChange(); !c.Time.IsZero() {
+		res.LastChange = &LastChangeInfo{
+			Time:       c.Time.Format(time.RFC3339),
+			AgeSeconds: time.Since(c.Time).Seconds(),
+			Source:     c.Source,
+			Client:     c.Client,
+			Host:       c.Host,
+		}
+	}
+	return res, http.StatusOK, nil
 }
 
-// relaySet switches a relay, logs who switched it and saves the states for startState: last.
+// relaySet switches a relay, logs who switched it, records the switch and saves the states.
+// client is the request's remote address; its host name is looked up afterwards, so the
+// switch never waits for DNS.
 func (app *App) relaySet(name, state, client string) (HTTPResponse, int, error) {
 	app.mu.RLock()
 	r, ok := app.relays[name]
@@ -164,7 +214,47 @@ func (app *App) relaySet(name, state, client string) (HTTPResponse, int, error) 
 		return HTTPResponse{}, http.StatusBadRequest, errInvalidState
 	}
 
-	slog.Info("Relay switched", "name", name, "gpio", r.GPIO(), "from", from, "to", state, "client", client)
+	ip := clientIP(client)
+	at := time.Now()
+	r.setChange(Change{Time: at, Source: SourceAPI, Client: ip})
+	slog.Info("Relay switched", "name", name, "gpio", r.GPIO(), "from", from, "to", state, "client", ip)
 	app.saveStates()
+	app.resolveClient(r, at, ip)
 	return app.relayGet(name)
+}
+
+// resolveClient looks up the host name of ip in the background and adds it to the relay's
+// last switch at, unless the relay has been switched again meanwhile. The lookup is bound to
+// the App's context and tracked in app.wg, so a shutdown cancels and waits for it.
+func (app *App) resolveClient(r *Relay, at time.Time, ip string) {
+	if ip == "" {
+		return
+	}
+	app.wg.Add(1)
+	go func() {
+		defer app.wg.Done()
+
+		ctx, cancel := context.WithTimeout(app.ctx, lookupTimeout)
+		defer cancel()
+		names, err := app.lookupAddr(ctx, ip)
+		if err != nil || len(names) == 0 {
+			slog.Debug("Client has no host name", "client", ip, "error", err)
+			return
+		}
+
+		host := strings.TrimSuffix(names[0], ".")
+		slog.Debug("Client resolved", "client", ip, "host", host)
+		if r.setHost(at, host) && app.ctx.Err() == nil {
+			app.saveStates()
+		}
+	}()
+}
+
+// clientIP returns the IP address of a request's remote address "ip:port".
+func clientIP(remoteAddr string) string {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return remoteAddr
+	}
+	return host
 }

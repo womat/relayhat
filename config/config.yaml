@@ -20,9 +20,10 @@ logDestination: stdout
 # missing; prod refuses to start without certFile.
 env: dev
 
-# stateFile keeps the last state of every relay for startState: last. It is
+# stateFile keeps the state of every relay and its last switch (when, by which
+# client), for startState: last and the "Last switch" in the web page. It is
 # written after every switch and once on start; the directory must exist and be
-# writable. Only used when a relay has startState: last.
+# writable. Set it to "" to keep nothing (startState: last then needs a file).
 stateFile: /opt/relayhat/data/state.yaml
 
 # =============================================================================
@@ -72,18 +73,31 @@ webserver:
 # A SIGHUP reload keeps the state of every relay whose gpio stays configured;
 # startState applies only to relays that are added by the reload.
 # A stop (SIGTERM/SIGINT) switches all relays off.
+#
+# Web page only (optional, the API paths stay /relays/{name}):
+#   label:   name on the card, default the relay name
+#   color:   pilot light when on: green (default) | red | amber
+#   onText:  word for the on state, default ON
+#   offText: word for the off state, default OFF
+#
+# gpio 4 and 17: Pi Zero Relay HAT and 4-Channel Relay HAT;
+# gpio 22 and 27: 4-Channel Relay HAT only.
 # =============================================================================
 relay:
   relay1:
-    description: "gpio 4 available for Raspberry Pi 4 Channel Relay HAT and Raspberry Pi Zero Relay HAT"
+    label: "Heat pump"
+    description: "Utility lock signal of the heat pump"
     gpio: 4
     startState: off
+    color: red
+    onText: "Locked"
+    offText: "Released"
   relay2:
-    description: "gpio 17 available for Raspberry Pi 4 Channel Relay HAT and Raspberry Pi Zero Relay HAT"
+    description: "gpio 17, Pi Zero Relay HAT and 4-Channel Relay HAT"
     gpio: 17
   relay3:
-    description: "gpio 22 only for Raspberry Pi 4 Channel Relay HAT"
+    description: "gpio 22, 4-Channel Relay HAT only"
     gpio: 22
   relay4:
-    description: "gpio 27 only for Raspberry Pi 4 Channel Relay HAT"
+    description: "gpio 27, 4-Channel Relay HAT only"
     gpio: 27

@@ -4,20 +4,29 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/womat/relayhat/pkg/relay"
 )
 
 func TestRelayStatesRoundTrip(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "state.yaml")
-	want := map[string]relay.State{"pump": relay.On, "light": relay.Off}
+	changed := time.Date(2026, 10, 7, 14, 2, 13, 0, time.FixedZone("CEST", 2*3600))
+	want := map[string]savedState{
+		"pump":  {State: relay.On, Change: Change{Time: changed, Source: SourceAPI, Client: "192.168.65.20", Host: "nodered.fritz.box"}},
+		"light": {State: relay.Off},
+	}
 
 	if err := saveRelayStates(file, want); err != nil {
 		t.Fatal(err)
 	}
 	got := readRelayStates(file)
-	if len(got) != len(want) || got["pump"] != relay.On || got["light"] != relay.Off {
-		t.Errorf("readRelayStates = %v, want %v", got, want)
+	if len(got) != len(want) || got["light"] != want["light"] {
+		t.Errorf("readRelayStates = %+v, want %+v", got, want)
+	}
+	if p := got["pump"]; p.State != relay.On || !p.Change.Time.Equal(changed) || p.Change.Source != SourceAPI ||
+		p.Change.Client != "192.168.65.20" || p.Change.Host != "nodered.fritz.box" {
+		t.Errorf("pump = %+v, want %+v", p, want["pump"])
 	}
 
 	// No temporary file is left behind.
@@ -54,18 +63,29 @@ func TestReadRelayStatesNeverFails(t *testing.T) {
 
 func TestReadRelayStatesSkipsInvalidValues(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "state.yaml")
-	if err := os.WriteFile(file, []byte("pump: on\nlight: dimmed\n"), 0o600); err != nil {
+	if err := os.WriteFile(file, []byte("pump: on\nlight: dimmed\nfan:\n  state: toggled\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	got := readRelayStates(file)
-	if len(got) != 1 || got["pump"] != relay.On {
+	if len(got) != 1 || got["pump"].State != relay.On {
 		t.Errorf("readRelayStates = %v, want only pump: on", got)
+	}
+}
+
+func TestReadRelayStatesOldFormat(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "state.yaml")
+	if err := os.WriteFile(file, []byte("relay1: on\nrelay2: off\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := readRelayStates(file)
+	if got["relay1"].State != relay.On || got["relay2"].State != relay.Off || !got["relay1"].Change.Time.IsZero() {
+		t.Errorf("readRelayStates of the 1.7 format = %+v, want relay1 on, relay2 off, no change time", got)
 	}
 }
 
 func TestSaveRelayStatesMissingDirectory(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "missing", "state.yaml")
-	if err := saveRelayStates(file, map[string]relay.State{"pump": relay.On}); err == nil {
+	if err := saveRelayStates(file, map[string]savedState{"pump": {State: relay.On}}); err == nil {
 		t.Error("expected an error for a missing directory")
 	}
 }

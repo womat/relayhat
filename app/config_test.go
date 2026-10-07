@@ -106,6 +106,13 @@ func TestValidate(t *testing.T) {
 		t.Fatalf("valid start states: %v", err)
 	}
 
+	withDisplay := validConfig()
+	withDisplay.Relays["c"] = RelayConfig{GPIO: 3, Label: "EVU", Color: ColorRed, OnText: "Gesperrt", OffText: "Freigegeben"}
+	withDisplay.Relays["d"] = RelayConfig{GPIO: 4, Color: ColorAmber}
+	if err := withDisplay.Validate(); err != nil {
+		t.Fatalf("valid display settings: %v", err)
+	}
+
 	invalid := map[string]func(*Config){
 		"missing apiKey":     func(c *Config) { c.Webserver.ApiKey = "" },
 		"unknown env":        func(c *Config) { c.Env = "staging" },
@@ -117,6 +124,7 @@ func TestValidate(t *testing.T) {
 		"missing gpio":       func(c *Config) { c.Relays["a"] = RelayConfig{} },
 		"duplicate gpio":     func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 17}; c.Relays["b"] = RelayConfig{GPIO: 17} },
 		"unknown startState": func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 2, StartState: "toggle"} },
+		"unknown color":      func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 2, Color: "blue"} },
 		"last without stateFile": func(c *Config) {
 			c.StateFile = ""
 			c.Relays["a"] = RelayConfig{GPIO: 2, StartState: StartLast}

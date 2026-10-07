@@ -1,16 +1,18 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/womat/golib/gpio"
 	"github.com/womat/relayhat/pkg/relay"
 )
 
 // restart runs a restart of app and returns the relays it hands over.
-func restart(t *testing.T, app *App) map[int]*relay.Relay {
+func restart(t *testing.T, app *App) map[int]*Relay {
 	t.Helper()
 	go app.shutdownProcedure(ModeRestart)
 	<-app.Restart()
@@ -103,7 +105,7 @@ func TestStartStates(t *testing.T) {
 		"lastOff":  {GPIO: 5, StartState: StartLast},
 		"lastNone": {GPIO: 6, StartState: StartLast},
 	})
-	if err := saveRelayStates(cfg.StateFile, map[string]relay.State{"lastOn": relay.On, "lastOff": relay.Off}); err != nil {
+	if err := saveRelayStates(cfg.StateFile, map[string]savedState{"lastOn": {State: relay.On}, "lastOff": {State: relay.Off}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -130,7 +132,7 @@ func TestFirstStartCreatesStateFile(t *testing.T) {
 		t.Errorf("without a state file relay starts %q, want off", got.State)
 	}
 	got := readRelayStates(cfg.StateFile)
-	if got["last"] != relay.Off || got["on"] != relay.On {
+	if got["last"].State != relay.Off || got["on"].State != relay.On {
 		t.Errorf("state file after the first start = %v, want last: off, on: on", got)
 	}
 }
@@ -151,13 +153,13 @@ func TestSwitchSavesStateAndStopKeepsIt(t *testing.T) {
 	app, _ := startTestApp(t, cfg, nil)
 
 	serve(app, "PATCH", "/relays/pump/on", testKey)
-	if got := readRelayStates(cfg.StateFile); got["pump"] != relay.On {
+	if got := readRelayStates(cfg.StateFile); got["pump"].State != relay.On {
 		t.Fatalf("state file after PATCH on = %v, want pump: on", got)
 	}
 
 	go app.shutdownProcedure(ModeStop)
 	<-app.Shutdown()
-	if got := readRelayStates(cfg.StateFile); got["pump"] != relay.On {
+	if got := readRelayStates(cfg.StateFile); got["pump"].State != relay.On {
 		t.Errorf("stop overwrote the state file: %v, want pump: on", got)
 	}
 
@@ -176,5 +178,92 @@ func TestHandoverIgnoresStartState(t *testing.T) {
 	second, _ := newTestApp(t, map[string]RelayConfig{"r": {GPIO: 4, StartState: StartOff}}, handover)
 	if got := decode[HTTPResponse](t, serve(second, "GET", "/relays/r", testKey)); got.State != "on" {
 		t.Errorf("taken over relay is %q, want it to stay on despite startState off", got.State)
+	}
+}
+
+func TestSwitchRecordsClientAndHost(t *testing.T) {
+	cfg := testConfig(t, map[string]RelayConfig{"pump": {GPIO: 4}})
+	app, _ := startTestApp(t, cfg, nil)
+	app.lookupAddr = func(_ context.Context, addr string) ([]string, error) {
+		if addr != "127.0.0.1" {
+			t.Errorf("looked up %q, want the bare client IP", addr)
+		}
+		return []string{"nodered.fritz.box."}, nil
+	}
+
+	start := decode[HTTPResponse](t, serve(app, "GET", "/relays/pump", testKey)).LastChange
+	if start == nil || start.Source != SourceStart || start.Client != "" {
+		t.Fatalf("lastChange after the start = %+v, want source start", start)
+	}
+
+	got := decode[HTTPResponse](t, serve(app, "PATCH", "/relays/pump/on", testKey)).LastChange
+	if got == nil || got.Source != SourceAPI || got.Client != "127.0.0.1" {
+		t.Fatalf("lastChange after PATCH = %+v, want source api from 127.0.0.1", got)
+	}
+
+	app.wg.Wait() // the host name lookup
+	got = decode[HTTPResponse](t, serve(app, "GET", "/relays/pump", testKey)).LastChange
+	if got.Host != "nodered.fritz.box" {
+		t.Errorf("lastChange host = %q, want nodered.fritz.box", got.Host)
+	}
+	if saved := readRelayStates(cfg.StateFile)["pump"].Change; saved.Host != "nodered.fritz.box" || saved.Client != "127.0.0.1" {
+		t.Errorf("state file holds %+v, want client and host of the switch", saved)
+	}
+}
+
+func TestLateHostNameDoesNotOverwriteNewerSwitch(t *testing.T) {
+	r := &Relay{}
+	first := time.Now()
+	r.setChange(Change{Time: first, Source: SourceAPI, Client: "10.0.0.1"})
+	r.setChange(Change{Time: first.Add(time.Second), Source: SourceAPI, Client: "10.0.0.2"})
+
+	if r.setHost(first, "old-client") {
+		t.Error("setHost changed a newer switch")
+	}
+	if got := r.LastChange(); got.Host != "" || got.Client != "10.0.0.2" {
+		t.Errorf("LastChange = %+v, want the newer switch untouched", got)
+	}
+}
+
+func TestLastChangeSurvivesRestartAndReload(t *testing.T) {
+	changed := time.Date(2026, 10, 7, 14, 2, 13, 0, time.Local)
+	saved := Change{Time: changed, Source: SourceAPI, Client: "192.168.65.20", Host: "nodered.fritz.box"}
+
+	cfg := testConfig(t, map[string]RelayConfig{
+		"keep":    {GPIO: 4, StartState: StartLast},
+		"differs": {GPIO: 17, StartState: StartOff},
+	})
+	if err := saveRelayStates(cfg.StateFile, map[string]savedState{
+		"keep":    {State: relay.On, Change: saved},
+		"differs": {State: relay.On, Change: saved},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Cold start: "keep" starts on, as the file says, so the saved switch is still its last one;
+	// "differs" starts off although it was on, so the start is its last switch.
+	first, _ := startTestApp(t, cfg, nil)
+	if got := first.relays["keep"].LastChange(); !got.Time.Equal(changed) || got.Host != saved.Host {
+		t.Errorf("keep: LastChange = %+v, want the saved switch", got)
+	}
+	if got := first.relays["differs"].LastChange(); got.Source != SourceStart {
+		t.Errorf("differs: LastChange = %+v, want source start", got)
+	}
+
+	// Reload: a taken over relay keeps its last switch, also under a new name.
+	handover := restart(t, first)
+	second, _ := newTestApp(t, map[string]RelayConfig{"renamed": {GPIO: 4}}, handover)
+	if got := second.relays["renamed"].LastChange(); !got.Time.Equal(changed) || got.Client != saved.Client {
+		t.Errorf("after reload LastChange = %+v, want the saved switch", got)
+	}
+}
+
+func TestStateFileWrittenWithoutLastStartState(t *testing.T) {
+	cfg := testConfig(t, map[string]RelayConfig{"pump": {GPIO: 4}})
+	app, _ := startTestApp(t, cfg, nil)
+
+	serve(app, "PATCH", "/relays/pump/on", testKey)
+	if got := readRelayStates(cfg.StateFile)["pump"]; got.State != relay.On || got.Change.Source != SourceAPI {
+		t.Errorf("state file = %+v, want pump on, switched through the api", got)
 	}
 }

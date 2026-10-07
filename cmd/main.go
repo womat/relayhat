@@ -52,7 +52,6 @@ import (
 	"time"
 
 	"github.com/womat/relayhat/app"
-	"github.com/womat/relayhat/pkg/relay"
 	"gopkg.in/yaml.v3"
 )
 
@@ -117,7 +116,7 @@ func run(configFile string, debug bool) int {
 
 	// inherited holds the relays a restart left open until the next App takes them over.
 	// If run returns before that, they are closed here, which switches them off.
-	var inherited map[int]*relay.Relay
+	var inherited map[int]*app.Relay
 	defer func() {
 		for _, r := range inherited {
 			_ = r.Close()

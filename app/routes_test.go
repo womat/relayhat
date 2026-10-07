@@ -1,10 +1,13 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/womat/golib/gpio"
@@ -39,21 +42,26 @@ func testConfig(t *testing.T, relays map[string]RelayConfig) *Config {
 }
 
 // newTestApp returns an initialized App with the given relays on emulated pins.
-func newTestApp(t *testing.T, relays map[string]RelayConfig, inherited map[int]*relay.Relay) (*App, emuRelays) {
+func newTestApp(t *testing.T, relays map[string]RelayConfig, inherited map[int]*Relay) (*App, emuRelays) {
 	t.Helper()
 	return startTestApp(t, testConfig(t, relays), inherited)
 }
 
-// startTestApp returns an initialized App for cfg with its relays on emulated pins.
-func startTestApp(t *testing.T, cfg *Config, inherited map[int]*relay.Relay) (*App, emuRelays) {
+// startTestApp returns an initialized App for cfg with its relays on emulated pins. Clients
+// have no host name unless the test replaces app.lookupAddr.
+func startTestApp(t *testing.T, cfg *Config, inherited map[int]*Relay) (*App, emuRelays) {
 	t.Helper()
 	pins := emuRelays{}
 	app := New(cfg, nil, nil, inherited)
 	app.openRelay = pins.open
+	app.lookupAddr = func(context.Context, string) ([]string, error) { return nil, errors.New("no host name") }
 	if err := app.Init(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = app.Cleanup() })
+	t.Cleanup(func() {
+		app.wg.Wait() // host name lookups
+		_ = app.Cleanup()
+	})
 	return app, pins
 }
 
@@ -108,7 +116,7 @@ func TestRelaySwitching(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PATCH on = %d %s", rec.Code, rec.Body)
 	}
-	if got := decode[HTTPResponse](t, rec); got != (HTTPResponse{Name: "r1", State: "on", Description: "pump"}) {
+	if got := decode[HTTPResponse](t, rec); got.Name != "r1" || got.State != "on" || got.Description != "pump" || got.GPIO != 4 {
 		t.Errorf("PATCH on returned %+v", got)
 	}
 	if l, _ := pins[4].Value(); l != gpio.High {
@@ -170,5 +178,44 @@ func TestCORSAdvertisesUsedMethodsOnly(t *testing.T) {
 	rec := serve(app, http.MethodOptions, "/relays/r1/on", "")
 	if got, want := rec.Header().Get("Access-Control-Allow-Methods"), "GET, PATCH, OPTIONS"; got != want {
 		t.Errorf("Access-Control-Allow-Methods = %q, want %q", got, want)
+	}
+}
+
+func TestUIIsPublicAndOnlyAtRoot(t *testing.T) {
+	app, _ := newTestApp(t, nil, nil)
+
+	rec := serve(app, http.MethodGet, "/", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / without key = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("Content-Type = %q, want text/html", ct)
+	}
+	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "connect-src 'self'") {
+		t.Errorf("Content-Security-Policy = %q, want connect-src 'self'", csp)
+	}
+	if !strings.Contains(rec.Body.String(), "relayhat.apiKey") {
+		t.Error("GET / did not serve the web page")
+	}
+
+	if rec := serve(app, http.MethodGet, "/unknown", ""); rec.Code == http.StatusOK {
+		t.Error("GET /unknown = 200, the page must be served at / only")
+	}
+}
+
+func TestRelayDisplay(t *testing.T) {
+	app, _ := newTestApp(t, map[string]RelayConfig{
+		"relay1": {GPIO: 4, Label: "EVU", Color: ColorRed, OnText: "Gesperrt", OffText: "Freigegeben"},
+		"relay2": {GPIO: 17},
+	}, nil)
+
+	got := decode[HTTPResponse](t, serve(app, http.MethodGet, "/relays/relay1", testKey))
+	if want := (Display{Label: "EVU", Color: "red", OnText: "Gesperrt", OffText: "Freigegeben"}); got.Display != want || got.GPIO != 4 {
+		t.Errorf("relay1 display = %+v gpio %d, want %+v gpio 4", got.Display, got.GPIO, want)
+	}
+
+	got = decode[HTTPResponse](t, serve(app, http.MethodGet, "/relays/relay2", testKey))
+	if want := (Display{Label: "relay2", Color: "green"}); got.Display != want {
+		t.Errorf("relay2 display = %+v, want the defaults %+v", got.Display, want)
 	}
 }

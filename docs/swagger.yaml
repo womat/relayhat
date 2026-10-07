@@ -1,11 +1,52 @@
 definitions:
+  app.Display:
+    properties:
+      color:
+        description: 'pilot light colour when on: green, red or amber'
+        type: string
+      label:
+        description: the relay name unless configured
+        type: string
+      offText:
+        description: word for the off state, OFF when empty
+        type: string
+      onText:
+        description: word for the on state, ON when empty
+        type: string
+    type: object
   app.HTTPResponse:
     properties:
       description:
         type: string
+      display:
+        $ref: '#/definitions/app.Display'
+      gpio:
+        type: integer
+      lastChange:
+        allOf:
+        - $ref: '#/definitions/app.LastChangeInfo'
+        description: absent when unknown
       name:
         type: string
       state:
+        type: string
+    type: object
+  app.LastChangeInfo:
+    properties:
+      ageSeconds:
+        description: seconds since Time, by the Pi's clock
+        type: number
+      client:
+        description: IP address of the API client
+        type: string
+      host:
+        description: reverse DNS name of the client, when it has one
+        type: string
+      source:
+        description: api, or start when relayhat switched it on start
+        type: string
+      time:
+        description: RFC 3339, in the Pi's time zone
         type: string
     type: object
   health.Model:
