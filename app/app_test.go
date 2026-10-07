@@ -3,11 +3,14 @@ package app
 import (
 	"context"
 	"errors"
+	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/womat/golib/gpio"
+	"github.com/womat/golib/web"
 	"github.com/womat/relayhat/pkg/relay"
 )
 
@@ -265,5 +268,83 @@ func TestStateFileWrittenWithoutLastStartState(t *testing.T) {
 	serve(app, "PATCH", "/relays/pump/on", testKey)
 	if got := readRelayStates(cfg.StateFile)["pump"]; got.State != relay.On || got.Change.Source != SourceAPI {
 		t.Errorf("state file = %+v, want pump on, switched through the api", got)
+	}
+}
+
+// clock is a settable time source for App.now.
+type clock struct{ t time.Time }
+
+func (c *clock) now() time.Time { return c.t }
+
+func TestSwitchLock(t *testing.T) {
+	app, pins := newTestApp(t, map[string]RelayConfig{"pump": {GPIO: 4, MinSwitchInterval: 10 * time.Second}}, nil)
+	c := &clock{t: time.Now().Add(time.Hour)} // well past the start, which counts as a switch
+	app.now = c.now
+
+	if rec := serve(app, http.MethodPatch, "/relays/pump/on", testKey); rec.Code != http.StatusOK {
+		t.Fatalf("first switch = %d, want 200", rec.Code)
+	}
+	switched := decode[HTTPResponse](t, serve(app, http.MethodGet, "/relays/pump", testKey)).LastChange.Time
+
+	c.t = c.t.Add(3*time.Second + 200*time.Millisecond)
+	rec := serve(app, http.MethodPatch, "/relays/pump/off", testKey)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("switch within the lock = %d, want 429", rec.Code)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "7" {
+		t.Errorf("Retry-After = %q, want 7", got)
+	}
+	if msg := decode[web.ApiError](t, rec).Error; !strings.Contains(msg, "switching locked for 7s") {
+		t.Errorf("error = %q, want the remaining lock", msg)
+	}
+	if l, _ := pins[4].Value(); l != gpio.High {
+		t.Error("a refused switch changed the pin")
+	}
+
+	// The current state again is no switch: allowed while locked, and it keeps the last switch.
+	rec = serve(app, http.MethodPatch, "/relays/pump/on", testKey)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PATCH to the current state while locked = %d, want 200", rec.Code)
+	}
+	got := decode[HTTPResponse](t, rec)
+	if got.LastChange.Time != switched {
+		t.Errorf("PATCH to the current state moved the last switch from %s to %s", switched, got.LastChange.Time)
+	}
+	if got.Lock == nil || got.Lock.IntervalSeconds != 10 || got.Lock.RemainingSeconds != 7 {
+		t.Errorf("lock = %+v, want interval 10, remaining 7", got.Lock)
+	}
+
+	c.t = c.t.Add(7 * time.Second)
+	if rec := serve(app, http.MethodPatch, "/relays/pump/off", testKey); rec.Code != http.StatusOK {
+		t.Errorf("switch after the lock = %d, want 200", rec.Code)
+	}
+}
+
+func TestNoSwitchLockWithoutInterval(t *testing.T) {
+	app, _ := newTestApp(t, map[string]RelayConfig{"pump": {GPIO: 4}}, nil)
+
+	for _, state := range []string{"on", "off", "on"} {
+		if rec := serve(app, http.MethodPatch, "/relays/pump/"+state, testKey); rec.Code != http.StatusOK {
+			t.Errorf("PATCH %s = %d, want 200", state, rec.Code)
+		}
+	}
+	if got := decode[HTTPResponse](t, serve(app, http.MethodGet, "/relays/pump", testKey)); got.Lock != nil {
+		t.Errorf("lock = %+v, want none without minSwitchInterval", got.Lock)
+	}
+}
+
+func TestSwitchLockSurvivesReload(t *testing.T) {
+	cfgs := map[string]RelayConfig{"pump": {GPIO: 4, MinSwitchInterval: time.Minute}}
+	first, _ := newTestApp(t, cfgs, nil)
+	c := &clock{t: time.Now().Add(time.Hour)}
+	first.now = c.now
+	serve(first, http.MethodPatch, "/relays/pump/on", testKey)
+
+	handover := restart(t, first)
+	second, _ := newTestApp(t, cfgs, handover)
+	second.now = c.now
+	c.t = c.t.Add(10 * time.Second)
+	if rec := serve(second, http.MethodPatch, "/relays/pump/off", testKey); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("switch 10 s after the last one, across a reload = %d, want 429", rec.Code)
 	}
 }

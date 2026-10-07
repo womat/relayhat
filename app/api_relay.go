@@ -7,10 +7,12 @@ import (
 	"net"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/womat/golib/web"
+	"github.com/womat/relayhat/pkg/relay"
 )
 
 // lookupTimeout bounds the reverse DNS lookup of a client after a switch.
@@ -29,6 +31,13 @@ type HTTPResponse struct {
 	GPIO        int             `json:"gpio"`
 	Display     Display         `json:"display"`
 	LastChange  *LastChangeInfo `json:"lastChange,omitempty"` // absent when unknown
+	Lock        *LockInfo       `json:"lock,omitempty"`       // absent without minSwitchInterval
+}
+
+// LockInfo is the switch lock of a relay, see RelayConfig.MinSwitchInterval.
+type LockInfo struct {
+	IntervalSeconds  float64 `json:"intervalSeconds"`  // minSwitchInterval
+	RemainingSeconds float64 `json:"remainingSeconds"` // until it may be switched again, 0 when it may
 }
 
 // Display holds how the web UI shows a relay, from its configuration.
@@ -126,6 +135,7 @@ func (app *App) HandleRelayGetAll() http.Handler {
 //	@Failure		400		{object}	web.ApiError	"Invalid state"
 //	@Failure		401		{object}	web.ApiError	"Unauthorized"
 //	@Failure		404		{object}	web.ApiError	"Relay not found"
+//	@Failure		429		{object}	web.ApiError	"Switching locked by minSwitchInterval, see the Retry-After header"
 //	@Failure		500		{object}	web.ApiError	"Internal server error"
 //	@Router			/relays/{name}/{state} [patch]
 func (app *App) HandleRelaySet() http.Handler {
@@ -137,6 +147,10 @@ func (app *App) HandleRelaySet() http.Handler {
 
 			res, stat, err := app.relaySet(name, state, r.RemoteAddr)
 			if err != nil {
+				var locked errSwitchLocked
+				if errors.As(err, &locked) {
+					w.Header().Set("Retry-After", strconv.Itoa(int(locked.remaining/time.Second)))
+				}
 				web.WriteError(w, r, stat, err)
 				return
 			}
@@ -175,10 +189,16 @@ func (app *App) relayGet(name string) (HTTPResponse, int, error) {
 			OffText: r.Config.OffText,
 		},
 	}
+	if interval := r.Config.MinSwitchInterval; interval > 0 {
+		res.Lock = &LockInfo{
+			IntervalSeconds:  interval.Seconds(),
+			RemainingSeconds: r.LockRemaining(app.now()).Seconds(),
+		}
+	}
 	if c := r.LastChange(); !c.Time.IsZero() {
 		res.LastChange = &LastChangeInfo{
 			Time:       c.Time.Format(time.RFC3339),
-			AgeSeconds: time.Since(c.Time).Seconds(),
+			AgeSeconds: app.now().Sub(c.Time).Seconds(),
 			Source:     c.Source,
 			Client:     c.Client,
 			Host:       c.Host,
@@ -189,7 +209,9 @@ func (app *App) relayGet(name string) (HTTPResponse, int, error) {
 
 // relaySet switches a relay, logs who switched it, records the switch and saves the states.
 // client is the request's remote address; its host name is looked up afterwards, so the
-// switch never waits for DNS.
+// switch never waits for DNS. A relay already in state is not switched again: the request
+// succeeds, but neither the last switch nor the switch lock change. Within minSwitchInterval
+// of the last switch the request fails with 429.
 func (app *App) relaySet(name, state, client string) (HTTPResponse, int, error) {
 	app.mu.RLock()
 	r, ok := app.relays[name]
@@ -199,24 +221,31 @@ func (app *App) relaySet(name, state, client string) (HTTPResponse, int, error) 
 		return HTTPResponse{}, http.StatusNotFound, errRelayNotFound
 	}
 
-	from, _ := r.GetState()
-
+	var want relay.State
 	switch state {
-	case "on":
-		if err := r.TurnOn(); err != nil {
-			return HTTPResponse{}, http.StatusInternalServerError, err
-		}
-	case "off":
-		if err := r.TurnOff(); err != nil {
-			return HTTPResponse{}, http.StatusInternalServerError, err
-		}
+	case relay.On.String():
+		want = relay.On
+	case relay.Off.String():
+		want = relay.Off
 	default:
 		return HTTPResponse{}, http.StatusBadRequest, errInvalidState
 	}
 
 	ip := clientIP(client)
-	at := time.Now()
-	r.setChange(Change{Time: at, Source: SourceAPI, Client: ip})
+	at := app.now()
+	from, switched, err := r.switchTo(want, Change{Time: at, Source: SourceAPI, Client: ip})
+	var locked errSwitchLocked
+	switch {
+	case errors.As(err, &locked):
+		slog.Info("Relay switch refused, locked", "name", name, "to", state, "client", ip, "remaining", locked.remaining)
+		return HTTPResponse{}, http.StatusTooManyRequests, err
+	case err != nil:
+		return HTTPResponse{}, http.StatusInternalServerError, err
+	case !switched:
+		slog.Debug("Relay already in the requested state", "name", name, "state", state, "client", ip)
+		return app.relayGet(name)
+	}
+
 	slog.Info("Relay switched", "name", name, "gpio", r.GPIO(), "from", from, "to", state, "client", ip)
 	app.saveStates()
 	app.resolveClient(r, at, ip)

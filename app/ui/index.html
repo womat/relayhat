@@ -9,7 +9,8 @@
   Web page of relayhat, embedded in the binary and served at GET /.
   It holds no data itself: it asks for the API key once, keeps it in localStorage, polls
   /relays and /health with it and switches through PATCH /relays/{name}/{state}. A switch
-  takes two taps: the first arms the button for a few seconds, the second confirms.
+  takes two taps: the first arms the button for a few seconds, the second confirms. While a
+  relay's switch lock (minSwitchInterval) runs, its button is disabled and counts down.
   Self-contained on purpose - no external fonts or scripts, the Pi may have no internet access.
 -->
 <style>
@@ -129,6 +130,9 @@ header {
 .hint { margin: -6px 0 0; font-size: 12px; color: var(--muted); min-height: 1.45em; }
 .card.armed .hint { color: var(--arm); }
 .hint.err { color: var(--crit); }
+.switch.locked { color: var(--muted); border-style: dashed; font-variant-numeric: tabular-nums; }
+.lockinfo { margin: -10px 0 0; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.lockinfo svg { width: 12px; height: 12px; flex: none; }
 
 dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13px; }
 dt { color: var(--muted); }
@@ -214,6 +218,7 @@ document.documentElement.style.setProperty("--arm-ms", ARM_MS + "ms");
 
 let apiKey = load();
 let timer = null;
+let ticker = null;      // re-renders every second, for the lock countdown
 let lastOk = null;      // time of the last successful poll, for the stale banner and the ages
 let relays = [];        // the last /relays answer, sorted by name; each relay gets _at, when it was read
 let cardKeys = null;    // relay names the grid was built for; it is rebuilt only when they change
@@ -256,6 +261,15 @@ function piTime(s, sec) {
 // read, so a wrong clock in the browser does not matter.
 function age(r) { return r.lastChange.ageSeconds + (Date.now() - r._at) / 1000; }
 
+// Seconds until the relay may be switched again, counted down from what the Pi reported.
+function lockLeft(r) { return r.lock ? Math.max(0, r.lock.remainingSeconds - (Date.now() - r._at) / 1000) : 0; }
+function mmss(sec) { const s = Math.ceil(sec); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }
+// 5 -> "5 s", 600 -> "10 min", 90 -> "1 min 30 s"
+function interval(sec) {
+  const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+  return [m && `${m} min`, s && `${s} s`].filter(Boolean).join(" ") || "0 s";
+}
+
 function label(r) { return r.display.label || r.name; }
 function stateText(r, s) { return (s === "on" ? r.display.onText : r.display.offText) || s.toUpperCase(); }
 function target(r) { return r.state === "on" ? "off" : "on"; }
@@ -288,6 +302,7 @@ function build() {
       <div class="state"><span class="pilot" aria-hidden="true"><i></i></span><span class="val"></span><span class="since"></span></div>
       <button type="button" class="switch"><span class="label"></span><span class="bar" aria-hidden="true"></span></button>
       <p class="hint"></p>
+      <p class="lockinfo" hidden><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg><span></span></p>
       <dl><dt>Last switch</dt><dd class="when"></dd><dt>By</dt><dd class="by"></dd></dl>`;
     const name = r.name;
     card.querySelector(".switch").addEventListener("click", () => press(name));
@@ -322,9 +337,15 @@ function render() {
     // Own state texts read as a target ("→ Gesperrt"); without them the plain verb ("Turn on").
     const to = target(r);
     const own = to === "on" ? r.display.onText : r.display.offText;
-    const text = isBusy ? "Switching…" : isArmed ? `Confirm: ${stateText(r, to)}` : own ? `→ ${own}` : `Turn ${to}`;
+    const left = lockLeft(r);
+    const text = isBusy ? "Switching…" : left > 0 ? `🔒 Locked · ${mmss(left)}` :
+      isArmed ? `Confirm: ${stateText(r, to)}` : own ? `→ ${own}` : `Turn ${to}`;
     const btn = card.querySelector(".switch");
-    btn.disabled = isBusy || offline;
+    btn.disabled = isBusy || offline || left > 0;
+    btn.classList.toggle("locked", left > 0 && !isBusy);
+    const info = card.querySelector(".lockinfo");
+    info.hidden = !r.lock;
+    if (r.lock) info.querySelector("span").textContent = `Switch lock: ${interval(r.lock.intervalSeconds)} after each switch`;
     card.querySelector(".label").textContent = text;
     btn.setAttribute("aria-label", `${text}, ${label(r)}`);
 
@@ -361,7 +382,7 @@ function disarm(redraw = true) {
 
 function press(name) {
   const r = relays.find(x => x.name === name);
-  if (!r || busy.has(name) || offline) return;
+  if (!r || busy.has(name) || offline || lockLeft(r) > 0) return;
   if (armed && armed.name === name) {
     if (performance.now() - armed.at < MIN_CONFIRM_MS) return; // a double tap: stay armed
     const to = armed.to;
@@ -438,10 +459,11 @@ async function poll() {
     lastOk = new Date();
     offline = false;
     relays = list.map(r => ({ ...r, _at: lastOk.getTime() }));
-    // A relay switched elsewhere drops a pending confirmation: it would no longer do what the button said.
+    // A relay switched elsewhere drops a pending confirmation: it would no longer do what the
+    // button said, and it is locked now if it has a switch lock.
     if (armed) {
       const r = relays.find(x => x.name === armed.name);
-      if (!r || r.state !== armed.state) disarm(false);
+      if (!r || r.state !== armed.state || lockLeft(r) > 0) disarm(false);
     }
     render();
     $("updated").textContent = hms(lastOk);
@@ -462,8 +484,10 @@ function start() {
   $("main").hidden = false;
   poll();
   timer = setInterval(poll, POLL_MS);
+  // Lock countdowns and ages run in seconds, between polls; a render is cheap.
+  ticker = setInterval(() => { if (lastOk) render(); }, 1000);
 }
-function stop() { clearInterval(timer); timer = null; }
+function stop() { clearInterval(timer); clearInterval(ticker); timer = ticker = null; }
 
 $("keyform").addEventListener("submit", e => {
   e.preventDefault();

@@ -62,6 +62,7 @@ type App struct {
 	ctx         context.Context
 	cancelFunc  context.CancelFunc
 
+	now        func() time.Time                                         // time.Now; replaced in tests
 	openRelay  func(gpio int) (*relay.Relay, error)                     // relay.New; replaced in tests
 	lookupAddr func(ctx context.Context, addr string) ([]string, error) // reverse DNS; replaced in tests
 	inherited  map[int]*Relay                                           // open relays of the previous App by GPIO, consumed by Init
@@ -79,29 +80,95 @@ type Relay struct {
 	*relay.Relay
 	Config RelayConfig // replaced by Init with the configuration of the App that uses it
 
-	changeMu sync.Mutex
-	change   Change
+	mu     sync.Mutex // serializes switching and protects change
+	change Change
+}
+
+// errSwitchLocked is returned by switchTo while RelayConfig.MinSwitchInterval has not passed
+// since the last switch.
+type errSwitchLocked struct {
+	remaining time.Duration
+	interval  time.Duration
+}
+
+func (e errSwitchLocked) Error() string {
+	return fmt.Sprintf("switching locked for %s (minSwitchInterval %s)", e.remaining, e.interval)
 }
 
 // LastChange returns the relay's last switch; its Time is zero when it is not known.
 func (r *Relay) LastChange() Change {
-	r.changeMu.Lock()
-	defer r.changeMu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return r.change
+}
+
+// LockRemaining returns how long the relay may not be switched at now, rounded up to whole
+// seconds; 0 when it may.
+func (r *Relay) LockRemaining(now time.Time) time.Duration {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lockRemaining(now)
+}
+
+// lockRemaining is LockRemaining for a caller holding r.mu. The lock runs from the last switch,
+// whoever made it; without a known last switch there is none.
+func (r *Relay) lockRemaining(now time.Time) time.Duration {
+	interval := r.Config.MinSwitchInterval
+	if interval <= 0 || r.change.Time.IsZero() {
+		return 0
+	}
+	left := r.change.Time.Add(interval).Sub(now)
+	if left <= 0 {
+		return 0
+	}
+	if frac := left % time.Second; frac > 0 {
+		left += time.Second - frac
+	}
+	return left
+}
+
+// switchTo switches the relay to want and records change as its last switch. A relay already
+// in state want is left alone and its last switch kept, also while it is locked; otherwise a
+// switch within MinSwitchInterval of the last one fails with errSwitchLocked. Checking and
+// switching happen under r.mu, so two concurrent requests cannot both pass the lock.
+func (r *Relay) switchTo(want relay.State, change Change) (from relay.State, switched bool, err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if from, err = r.GetState(); err != nil {
+		return relay.Unknown, false, err
+	}
+	if from == want {
+		return from, false, nil
+	}
+	if left := r.lockRemaining(change.Time); left > 0 {
+		return from, false, errSwitchLocked{remaining: left, interval: r.Config.MinSwitchInterval}
+	}
+
+	if want == relay.On {
+		err = r.TurnOn()
+	} else {
+		err = r.TurnOff()
+	}
+	if err != nil {
+		return from, false, err
+	}
+	r.change = change
+	return from, true, nil
 }
 
 // setChange records the relay's last switch.
 func (r *Relay) setChange(c Change) {
-	r.changeMu.Lock()
+	r.mu.Lock()
 	r.change = c
-	r.changeMu.Unlock()
+	r.mu.Unlock()
 }
 
 // setHost adds the client's host name to the last switch, unless the relay has been switched
 // again since then, at.
 func (r *Relay) setHost(at time.Time, host string) bool {
-	r.changeMu.Lock()
-	defer r.changeMu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if !r.change.Time.Equal(at) {
 		return false
 	}
@@ -139,6 +206,7 @@ func New(config *Config, signals <-chan os.Signal, checkReload func() error, inh
 		shutdown:   make(chan struct{}),
 		ctx:        ctx,
 		cancelFunc: cancel,
+		now:        time.Now,
 		openRelay:  relay.New,
 		lookupAddr: net.DefaultResolver.LookupAddr,
 		inherited:  inherited,
@@ -249,7 +317,7 @@ func (app *App) applyStartStates(relays map[string]*Relay, opened []string) erro
 	if app.config.StateFile != "" {
 		stored = readRelayStates(app.config.StateFile)
 	}
-	now := time.Now()
+	now := app.now()
 
 	for _, name := range opened {
 		mode := app.config.Relays[name].startMode()

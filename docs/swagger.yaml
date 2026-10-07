@@ -26,6 +26,10 @@ definitions:
         allOf:
         - $ref: '#/definitions/app.LastChangeInfo'
         description: absent when unknown
+      lock:
+        allOf:
+        - $ref: '#/definitions/app.LockInfo'
+        description: absent without minSwitchInterval
       name:
         type: string
       state:
@@ -48,6 +52,15 @@ definitions:
       time:
         description: RFC 3339, in the Pi's time zone
         type: string
+    type: object
+  app.LockInfo:
+    properties:
+      intervalSeconds:
+        description: minSwitchInterval
+        type: number
+      remainingSeconds:
+        description: until it may be switched again, 0 when it may
+        type: number
     type: object
   health.Model:
     properties:
@@ -200,6 +213,11 @@ paths:
             $ref: '#/definitions/web.ApiError'
         "404":
           description: Relay not found
+          schema:
+            $ref: '#/definitions/web.ApiError'
+        "429":
+          description: Switching locked by minSwitchInterval, see the Retry-After
+            header
           schema:
             $ref: '#/definitions/web.ApiError'
         "500":

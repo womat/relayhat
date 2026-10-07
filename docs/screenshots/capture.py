@@ -36,7 +36,7 @@ RELAYS = [
          age=26 * 3600 + 7 * 60, source="api", client="192.168.65.20", host="nodered.fritz.box"),
     dict(name="relay2", state="on", description="Zwangsbetrieb bei PV-Überschuss", gpio=17,
          display=dict(label="Überschusssteuerung", color="green", onText="Zwangsbetrieb", offText="Normal"),
-         age=47 * 60, source="api", client="192.168.65.20", host="nodered.fritz.box"),
+         age=47 * 60, source="api", client="192.168.65.20", host="nodered.fritz.box", lock=5),
 ]
 
 
@@ -56,9 +56,18 @@ class Api:
             self.patches = []
             self.reject = False
 
+    @staticmethod
+    def locked(r, now):
+        """Seconds the relay's switch lock still runs, like relayhat's lock.remainingSeconds."""
+        if not r.get("lock"):
+            return 0
+        return max(0, r["lock"] - (now - r["changed"]).total_seconds())
+
     def view(self, r):
         now = datetime.now(TZ)
         out = {k: r[k] for k in ("name", "state", "description", "gpio", "display")}
+        if r.get("lock"):
+            out["lock"] = {"intervalSeconds": r["lock"], "remainingSeconds": self.locked(r, now)}
         out["lastChange"] = {
             "time": r["changed"].replace(microsecond=0).isoformat(),
             "ageSeconds": (now - r["changed"]).total_seconds(),
@@ -113,6 +122,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if parts[2] not in ("on", "off"):
                 self.send_json(400, {"error": "invalid state: must be \"on\" or \"off\""})
+                return
+            if r["state"] == parts[2]:
+                self.send_json(200, API.view(r))
+                return
+            left = API.locked(r, datetime.now(TZ))
+            if left > 0:
+                self.send_json(429, {"error": f"switching locked for {int(left) + 1}s (minSwitchInterval {r['lock']}s)"})
                 return
             API.patches.append((r["name"], parts[2]))
             r.update(state=parts[2], changed=datetime.now(TZ), source="api", client="192.168.65.23",
@@ -169,6 +185,21 @@ def check(browser):
     assert API.patches == [("relay1", "on")], API.patches
     assert "on" in card.get_attribute("class").split()
     assert card.locator(".by").inner_text() == "macbook"
+
+    # The second relay has a 5 s switch lock: after a switch its button is locked and counts down.
+    card2 = page.locator("article.card").nth(1)
+    button2 = card2.locator("button.switch")
+    assert card2.locator(".lockinfo").inner_text() == "Switch lock: 5 s after each switch"
+    button2.click()
+    page.wait_for_timeout(400)
+    button2.click()
+    page.wait_for_function("document.querySelectorAll('article.card')[1].querySelector('.switch').disabled")
+    assert API.patches[-1] == ("relay2", "off"), API.patches
+    assert button2.inner_text().startswith("🔒 Locked · 0:0"), button2.inner_text()
+    button2.click(force=True)
+    assert len(API.patches) == 2, "a locked button switched"
+    page.wait_for_function("!document.querySelectorAll('article.card')[1].querySelector('.switch').disabled", timeout=8000)
+    assert button2.inner_text() == "→ Zwangsbetrieb", button2.inner_text()
 
     # A key the server no longer accepts leads back to the login.
     API.reject = True

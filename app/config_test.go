@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // writeConfig writes content to a temporary config file and returns its path.
@@ -114,17 +115,19 @@ func TestValidate(t *testing.T) {
 	}
 
 	invalid := map[string]func(*Config){
-		"missing apiKey":     func(c *Config) { c.Webserver.ApiKey = "" },
-		"unknown env":        func(c *Config) { c.Env = "staging" },
-		"unknown log level":  func(c *Config) { c.LogLevel = "trace" },
-		"port out of range":  func(c *Config) { c.Webserver.ListenPort = 70000 },
-		"empty relay name":   func(c *Config) { c.Relays[""] = RelayConfig{GPIO: 5} },
-		"gpio below range":   func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 1} },
-		"gpio above range":   func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 28} },
-		"missing gpio":       func(c *Config) { c.Relays["a"] = RelayConfig{} },
-		"duplicate gpio":     func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 17}; c.Relays["b"] = RelayConfig{GPIO: 17} },
-		"unknown startState": func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 2, StartState: "toggle"} },
-		"unknown color":      func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 2, Color: "blue"} },
+		"missing apiKey":             func(c *Config) { c.Webserver.ApiKey = "" },
+		"unknown env":                func(c *Config) { c.Env = "staging" },
+		"unknown log level":          func(c *Config) { c.LogLevel = "trace" },
+		"port out of range":          func(c *Config) { c.Webserver.ListenPort = 70000 },
+		"empty relay name":           func(c *Config) { c.Relays[""] = RelayConfig{GPIO: 5} },
+		"gpio below range":           func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 1} },
+		"gpio above range":           func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 28} },
+		"missing gpio":               func(c *Config) { c.Relays["a"] = RelayConfig{} },
+		"duplicate gpio":             func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 17}; c.Relays["b"] = RelayConfig{GPIO: 17} },
+		"unknown startState":         func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 2, StartState: "toggle"} },
+		"unknown color":              func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 2, Color: "blue"} },
+		"negative minSwitchInterval": func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 2, MinSwitchInterval: -time.Second} },
+		"minSwitchInterval too long": func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 2, MinSwitchInterval: 25 * time.Hour} },
 		"last without stateFile": func(c *Config) {
 			c.StateFile = ""
 			c.Relays["a"] = RelayConfig{GPIO: 2, StartState: StartLast}
@@ -157,5 +160,15 @@ func TestWarnings(t *testing.T) {
 		if strings.Contains(w[0], key) {
 			t.Errorf("warning leaks the key: %q", w[0])
 		}
+	}
+}
+
+func TestLoadConfigMinSwitchInterval(t *testing.T) {
+	cfg, err := LoadConfig(writeConfig(t, "relay:\n  pump:\n    gpio: 4\n    minSwitchInterval: 5s\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Relays["pump"].MinSwitchInterval; got != 5*time.Second {
+		t.Errorf("minSwitchInterval = %s, want 5s", got)
 	}
 }
