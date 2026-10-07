@@ -51,7 +51,8 @@ protects requests with an API key.
 | PATCH  | `/relays/{name}/{state}` | API Key | Set relay (`on` / `off`) |
 
 Authentication via the `X-API-Key` header. Errors are returned as `{"error": "..."}` with the HTTP status
-(401, 404, 400 for an invalid state); a 500 carries only `internal server error`, the cause is in the log.
+(401, 404, 400 for an invalid state, 429 with a `Retry-After` header while the relay's switch lock runs); a 500
+carries only `internal server error`, the cause is in the log.
 Every switch is logged with relay, GPIO, old and new state and the client address.
 
 A relay is returned as:
@@ -69,13 +70,17 @@ A relay is returned as:
     "source": "api",
     "client": "192.168.65.20",
     "host": "nodered.fritz.box"
-  }
+  },
+  "lock": { "intervalSeconds": 5, "remainingSeconds": 0 }
 }
 ```
 
 `display` comes from the configuration and is meant for the web page. `lastChange` is the last switch: `source` is
 `api`, or `start` when relayhat switched the relay to its start state; `host` is the client's reverse DNS name, looked
 up after the switch and missing when there is none. `lastChange` is kept in the `stateFile` and survives a restart.
+`lock` is present with `minSwitchInterval` only; `remainingSeconds` is how long the relay still refuses to switch.
+A request for the state the relay is already in succeeds without switching, so it neither changes `lastChange` nor
+starts the lock.
 
 ### Examples
 
@@ -115,6 +120,9 @@ local storage and sends it as `X-API-Key`; **Sign out** forgets it.
 - **Two-step switching**: the first tap arms the button (`Confirm: …`, a bar runs down for 3 seconds), only a
   second tap within that time switches. A fast double tap, `Esc` or the timeout cancel. When another client switches
   the relay meanwhile, the pending confirmation is dropped.
+- **Switch lock**: a relay with `minSwitchInterval` shows it below its button; after every switch, from the page or
+  any other client, the button is disabled and counts down (`🔒 Locked · 0:04`). The lock applies to the page too,
+  there is no override.
 - Refreshes every 3 seconds while the tab is visible; if the Pi does not answer, a banner says so and the values are
   greyed out.
 - Self-contained: no external fonts or scripts, so it works on a network without internet access.
@@ -161,6 +169,9 @@ Default location: `/opt/relayhat/etc/config.yaml`
   start off and the log says why.
 - `stateFile` also keeps the last switch of every relay, so the web page shows it after a restart. It is written on
   start and after every switch; `stateFile: ""` keeps nothing. The format of 1.7 (`relay1: on`) is still read.
+- `minSwitchInterval` per relay (e.g. `5s`, `10m`, at most `24h`) refuses a switch within that time of the last
+  one with HTTP 429, for every client. It runs from the last switch, also across a reload or restart; start states
+  are never refused.
 - `label`, `color`, `onText` and `offText` only change how the web page shows a relay; `color` is `green`, `red` or
   `amber`.
 
@@ -240,6 +251,11 @@ webserver:
 # A SIGHUP reload keeps the state of every relay whose gpio stays configured;
 # startState applies only to relays that are added by the reload.
 # A stop (SIGTERM/SIGINT) switches all relays off.
+# minSwitchInterval: after a switch the relay refuses to be switched again for
+#   this long, by any client including the web page (HTTP 429), e.g. 5s or 10m;
+#   0 or missing disables it. The start counts as a switch, start states are
+#   never refused, and a request for the state the relay is already in is no
+#   switch.
 #
 # Web page only (optional, the API paths stay /relays/{name}):
 #   label:   name on the card, default the relay name
@@ -256,6 +272,7 @@ relay:
     description: "Utility lock signal of the heat pump"
     gpio: 4
     startState: off
+    minSwitchInterval: 5s
     color: red
     onText: "Locked"
     offText: "Released"

@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -33,6 +34,9 @@ const (
 	ColorRed   = "red"
 	ColorAmber = "amber"
 )
+
+// maxSwitchInterval is the longest RelayConfig.MinSwitchInterval Validate accepts.
+const maxSwitchInterval = 24 * time.Hour
 
 // Valid GPIO range of the 40-pin header (BCM numbering). GPIO 0 and 1 are reserved
 // for the HAT EEPROM.
@@ -71,6 +75,10 @@ type RelayConfig struct {
 	// last, the state stored in Config.StateFile. It does not apply to a relay that is taken
 	// over on a SIGHUP reload, which keeps its state.
 	StartState string `yaml:"startState"`
+
+	// MinSwitchInterval is the time after a switch during which the relay refuses to be switched
+	// again, by any client (e.g. 5s, 10m); 0 disables it. Start states are never refused.
+	MinSwitchInterval time.Duration `yaml:"minSwitchInterval"`
 
 	// Display settings for the web UI; they change nothing in the API paths or the switching.
 	Label   string `yaml:"label"`   // Name shown on the card, default the relay name
@@ -201,6 +209,10 @@ func (c *Config) Validate() error {
 			}
 		default:
 			return fmt.Errorf("relay %q: invalid startState %q, must be %s, %s or %s", name, relay.StartState, StartOff, StartOn, StartLast)
+		}
+
+		if relay.MinSwitchInterval < 0 || relay.MinSwitchInterval > maxSwitchInterval {
+			return fmt.Errorf("relay %q: minSwitchInterval must be between 0 and %s, got %s", name, maxSwitchInterval, relay.MinSwitchInterval)
 		}
 
 		switch relay.color() {

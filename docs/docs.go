@@ -194,6 +194,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/web.ApiError"
                         }
                     },
+                    "429": {
+                        "description": "Switching locked by minSwitchInterval, see the Retry-After header",
+                        "schema": {
+                            "$ref": "#/definitions/web.ApiError"
+                        }
+                    },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
@@ -274,6 +280,14 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "lock": {
+                    "description": "absent without minSwitchInterval",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/app.LockInfo"
+                        }
+                    ]
+                },
                 "name": {
                     "type": "string"
                 },
@@ -304,6 +318,19 @@ const docTemplate = `{
                 "time": {
                     "description": "RFC 3339, in the Pi's time zone",
                     "type": "string"
+                }
+            }
+        },
+        "app.LockInfo": {
+            "type": "object",
+            "properties": {
+                "intervalSeconds": {
+                    "description": "minSwitchInterval",
+                    "type": "number"
+                },
+                "remainingSeconds": {
+                    "description": "until it may be switched again, 0 when it may",
+                    "type": "number"
                 }
             }
         },

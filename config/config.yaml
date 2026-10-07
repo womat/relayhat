@@ -73,6 +73,11 @@ webserver:
 # A SIGHUP reload keeps the state of every relay whose gpio stays configured;
 # startState applies only to relays that are added by the reload.
 # A stop (SIGTERM/SIGINT) switches all relays off.
+# minSwitchInterval: after a switch the relay refuses to be switched again for
+#   this long, by any client including the web page (HTTP 429), e.g. 5s or 10m;
+#   0 or missing disables it. The start counts as a switch, start states are
+#   never refused, and a request for the state the relay is already in is no
+#   switch.
 #
 # Web page only (optional, the API paths stay /relays/{name}):
 #   label:   name on the card, default the relay name
@@ -89,6 +94,7 @@ relay:
     description: "Utility lock signal of the heat pump"
     gpio: 4
     startState: off
+    minSwitchInterval: 5s
     color: red
     onText: "Locked"
     offText: "Released"
