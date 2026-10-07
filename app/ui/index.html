@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>relayhat</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563a8'/%3E%3Cpath d='M4 22h6M22 22h6M12.5 21 21 15' fill='none' stroke='%23fff' stroke-width='2.6' stroke-linecap='round'/%3E%3Ccircle cx='11' cy='22' r='2' fill='%23fff'/%3E%3Ccircle cx='21' cy='22' r='2' fill='%23fff'/%3E%3C/svg%3E">
+<!--
+  Web page of relayhat, embedded in the binary and served at GET /.
+  It holds no data itself: it asks for the API key once, keeps it in localStorage, polls
+  /relays and /health with it and switches through PATCH /relays/{name}/{state}. A switch
+  takes two taps: the first arms the button for a few seconds, the second confirms.
+  Self-contained on purpose - no external fonts or scripts, the Pi may have no internet access.
+-->
+<style>
+:root {
+  --bg: #f3f5f7;
+  --surface: #ffffff;
+  --line: #dde2e8;
+  --fg: #17202b;
+  --muted: #5d6b7a;
+  --accent: #2563a8;
+  --accent-fg: #ffffff;
+  --ok: #1f7a4d;
+  --crit: #b3261e;
+  --crit-soft: #fbe6e4;
+  --arm: #b45f06;
+  --arm-soft: #fdf0e1;
+  --pilot-green: #22b35e;
+  --pilot-red: #e5322b;
+  --pilot-amber: #f0a020;
+  --bezel: #9aa4af;
+  --glass: #d5dbe1;
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-num: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11161c; --surface: #19212a; --line: #2a3541; --fg: #e6ebf0; --muted: #93a1b0;
+    --accent: #6ea8e6; --accent-fg: #0d1218; --ok: #5cc98f;
+    --crit: #f07a70; --crit-soft: #3d1c1a; --arm: #f0a94b; --arm-soft: #3a2810;
+    --pilot-green: #3ddc84; --pilot-red: #ff4a3d; --pilot-amber: #ffb02e; --bezel: #46525e; --glass: #26303a;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-ui);
+  font-size: 15px; line-height: 1.45; padding: 0 16px;
+}
+[hidden] { display: none !important; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-block: 20px 40px; }
+.stack { display: flex; flex-direction: column; gap: 20px; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+header {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px;
+  padding-bottom: 14px; border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.brand .mark { width: 40px; height: 30px; color: var(--accent); flex: none; }
+.brand .words { display: flex; flex-direction: column; line-height: 1.1; }
+.brand h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
+.brand h1 b { color: var(--accent); }
+.brand .sub { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); }
+/* The host names the device the page belongs to, so it sits next to the brand. */
+.brand .device { min-width: 0; padding-left: 14px; margin-left: 2px; border-left: 1px solid var(--line); }
+.brand .host { font-size: 22px; font-weight: 600; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.signout {
+  font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.signout:hover { color: var(--fg); border-color: var(--muted); }
+.signout svg { width: 14px; height: 14px; }
+
+.banner {
+  display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 8px;
+  background: var(--crit-soft); color: var(--crit); font-weight: 500;
+}
+
+/* auto-fill keeps the empty columns, so a single relay gets one column's width instead of the whole row. */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 16px; }
+.grid.stale { opacity: .45; filter: grayscale(.8); }
+.card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; min-width: 0; transition: border-color .2s;
+}
+.card.armed { border-color: var(--arm); }
+.card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.card-head h2 { margin: 0; font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
+.card-head .gpio { font-family: var(--font-num); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.desc { margin: -10px 0 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+
+.state { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.state .val { font-size: 24px; font-weight: 700; letter-spacing: -.01em; overflow-wrap: anywhere; min-width: 0; color: var(--muted); }
+.card.on .state .val { color: var(--pc); }
+.state .since { margin-left: auto; font-size: 13px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Pilot light as in a control cabinet: bezel and glass, lit in the relay's colour (--pc) when on. */
+.pilot {
+  width: 40px; height: 40px; border-radius: 50%; flex: none; padding: 4px;
+  background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--bezel) 60%, var(--surface)), var(--bezel));
+}
+.pilot i {
+  display: block; width: 100%; height: 100%; border-radius: 50%;
+  background: radial-gradient(circle at 38% 32%, color-mix(in srgb, var(--glass) 40%, var(--surface)) 0 18%, var(--glass) 55%);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, .25); transition: background .25s, box-shadow .25s;
+}
+.card.on .pilot i {
+  background: radial-gradient(circle at 38% 32%, color-mix(in srgb, var(--pc) 25%, white) 0 14%, var(--pc) 60%, color-mix(in srgb, var(--pc) 70%, black));
+  box-shadow: 0 0 14px 4px color-mix(in srgb, var(--pc) 55%, transparent);
+}
+
+/* The switch button. The first tap arms it (the bar drains), the second within ARM_MS switches. */
+.switch {
+  position: relative; overflow: hidden; font: inherit; font-weight: 600; font-size: 15px; width: 100%; min-height: 46px;
+  border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; padding: 10px 14px;
+}
+.switch:hover:not(:disabled) { border-color: var(--muted); }
+.switch:disabled { cursor: not-allowed; opacity: .7; }
+.switch .label { position: relative; z-index: 1; overflow-wrap: anywhere; }
+.switch .bar { position: absolute; left: 0; bottom: 0; height: 4px; width: 100%; background: var(--arm); transform-origin: left; transform: scaleX(0); }
+.card.armed .switch { background: var(--arm-soft); border-color: var(--arm); color: var(--arm); }
+.card.armed .switch .bar { animation: drain var(--arm-ms) linear forwards; }
+@keyframes drain { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+.hint { margin: -6px 0 0; font-size: 12px; color: var(--muted); min-height: 1.45em; }
+.card.armed .hint { color: var(--arm); }
+.hint.err { color: var(--crit); }
+
+dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13px; }
+dt { color: var(--muted); }
+dd { margin: 0; text-align: right; font-family: var(--font-num); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+dd.fresh { color: var(--ok); }
+
+@media (prefers-reduced-motion: reduce) {
+  .card.armed .switch .bar { animation: none; transform: scaleX(1); }
+  .card.on .pilot i { box-shadow: none; }
+}
+
+.empty { color: var(--muted); }
+footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted); }
+.num { font-family: var(--font-num); color: var(--fg); }
+
+.keybox {
+  max-width: 380px; margin: 40px auto; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; padding: 24px; display: flex; flex-direction: column; gap: 14px;
+}
+.keybox h2 { margin: 0; font-size: 18px; }
+.keybox p { margin: 0; font-size: 13px; color: var(--muted); }
+.keybox p.err { color: var(--crit); }
+.keybox .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.keybox input {
+  font: inherit; font-family: var(--font-num); padding: 9px 11px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg); width: 100%;
+}
+.keybox button {
+  align-self: flex-end; font: inherit; font-weight: 600; color: var(--accent-fg); background: var(--accent);
+  border: none; border-radius: 6px; padding: 8px 18px; cursor: pointer;
+}
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section id="login" hidden>
+    <form class="keybox" id="keyform">
+      <h2>relayhat</h2>
+      <p id="keyerr" class="err" hidden>The API key was rejected. Check webserver.apiKey in the config.</p>
+      <label for="apikey" class="lbl">API key</label>
+      <input id="apikey" type="password" autocomplete="current-password" placeholder="webserver.apiKey" required>
+      <p>Stored in this browser only and sent as X-API-Key.</p>
+      <button type="submit">Connect</button>
+    </form>
+  </section>
+
+  <section id="main" hidden>
+    <div class="stack">
+      <header>
+        <div class="brand">
+          <svg class="mark" viewBox="0 0 40 30" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2 21h9"/><circle cx="13" cy="21" r="2"/><path d="M14.8 20 27 12"/><circle cx="29" cy="21" r="2"/><path d="M31 21h7"/><path d="M20 4v9" stroke-dasharray="2 3"/>
+          </svg>
+          <div class="words"><h1><b>relay</b>hat</h1><span class="sub">Relay HAT control</span></div>
+          <div class="words device"><span class="host" id="host">–</span><span class="sub">host</span></div>
+        </div>
+        <button type="button" class="signout" id="signout">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2.5H3.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1H6"/><path d="M10.5 11 13.5 8l-3-3"/><path d="M13.5 8H6"/></svg>Sign out
+        </button>
+      </header>
+      <div id="banner" class="banner" role="alert" hidden>
+        <span aria-hidden="true">⚠</span><span id="bannertext"></span>
+      </div>
+      <div id="grid" class="grid"></div>
+      <div id="live" class="sr" aria-live="polite"></div>
+      <footer>
+        <span>Updated <span class="num" id="updated">–</span> · refreshes every 3 s</span>
+        <span>up <span class="num" id="uptime">–</span> · <span class="num" id="version">–</span></span>
+      </footer>
+    </div>
+  </section>
+</div>
+
+<script>
+"use strict";
+const POLL_MS = 3000;
+const ARM_MS = 3000;        // how long a button stays armed after the first tap
+const MIN_CONFIRM_MS = 300; // a second tap sooner than this is a double tap, not a confirmation
+const KEY = "relayhat.apiKey";
+const $ = id => document.getElementById(id);
+document.documentElement.style.setProperty("--arm-ms", ARM_MS + "ms");
+
+let apiKey = load();
+let timer = null;
+let lastOk = null;      // time of the last successful poll, for the stale banner and the ages
+let relays = [];        // the last /relays answer, sorted by name; each relay gets _at, when it was read
+let cardKeys = null;    // relay names the grid was built for; it is rebuilt only when they change
+const cards = new Map(); // name -> card element
+let armed = null;       // { name, to, state, at, timer } while a button waits for the second tap
+const busy = new Set(); // names with a switch request in flight
+let offline = false;
+
+function load() { try { return localStorage.getItem(KEY) || ""; } catch { return ""; } }
+function store(v) { try { v ? localStorage.setItem(KEY, v) : localStorage.removeItem(KEY); } catch {} }
+function hms(d) { return d.toTimeString().slice(0, 8); }
+
+// 1m, 3h 12m, 2d 4h: the two largest units, leading zero units left out.
+function uptime(sec) {
+  const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
+  if (d) return `${d}d ${h}h`;
+  if (h) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+function duration(sec) {
+  const m = Math.floor(sec / 60);
+  if (m < 1) return "< 1 min";
+  if (m < 60) return m + " min";
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} h ${m % 60} min`;
+  return `${Math.floor(h / 24)} d ${h % 24} h`;
+}
+function ago(sec) { return sec < 60 ? "just now" : duration(sec) + " ago"; }
+
+// "2026-10-07T14:02:13+02:00" -> "14:02:13" today, "05.10. 14:02:13" before; in the Pi's own time.
+function piTime(s, sec) {
+  const [date, rest] = s.split("T");
+  const time = rest.slice(0, 8);
+  if (sec < 12 * 3600 && new Date(s).toDateString() === new Date().toDateString()) return time;
+  const [, mo, d] = date.split("-");
+  return `${d}.${mo}. ${time}`;
+}
+
+// Seconds since the last switch, counted on from the age the Pi reported when the relay was
+// read, so a wrong clock in the browser does not matter.
+function age(r) { return r.lastChange.ageSeconds + (Date.now() - r._at) / 1000; }
+
+function label(r) { return r.display.label || r.name; }
+function stateText(r, s) { return (s === "on" ? r.display.onText : r.display.offText) || s.toUpperCase(); }
+function target(r) { return r.state === "on" ? "off" : "on"; }
+
+// "nodered.fritz.box" -> "nodered"; an IP stays as it is.
+function shortHost(h) { return /^[\d.]+$|:/.test(h) ? h : h.split(".")[0]; }
+function by(c) {
+  if (c.source === "start") return ["relayhat start", "switched to its start state when relayhat started"];
+  if (c.host) return [shortHost(c.host), `${c.host} (${c.client})`];
+  return [c.client || "unknown", c.client || ""];
+}
+
+function build() {
+  const grid = $("grid");
+  grid.replaceChildren();
+  cards.clear();
+  if (!relays.length) {
+    const p = document.createElement("p");
+    p.className = "empty";
+    p.textContent = "No relays configured.";
+    grid.append(p);
+    return;
+  }
+  for (const r of relays) {
+    const card = document.createElement("article");
+    card.className = "card";
+    card.innerHTML = `
+      <div class="card-head"><h2></h2><span class="gpio"></span></div>
+      <p class="desc"></p>
+      <div class="state"><span class="pilot" aria-hidden="true"><i></i></span><span class="val"></span><span class="since"></span></div>
+      <button type="button" class="switch"><span class="label"></span><span class="bar" aria-hidden="true"></span></button>
+      <p class="hint"></p>
+      <dl><dt>Last switch</dt><dd class="when"></dd><dt>By</dt><dd class="by"></dd></dl>`;
+    const name = r.name;
+    card.querySelector(".switch").addEventListener("click", () => press(name));
+    grid.append(card);
+    cards.set(name, card);
+  }
+}
+
+// render updates every card in place, so focus and an armed button survive a poll.
+function render() {
+  $("grid").classList.toggle("stale", offline);
+  if (!lastOk) return; // nothing read yet
+
+  const keys = relays.map(r => r.name).join("\n");
+  if (keys !== cardKeys) { disarm(false); build(); cardKeys = keys; }
+
+  for (const r of relays) {
+    const card = cards.get(r.name);
+    const isArmed = armed && armed.name === r.name;
+    const isBusy = busy.has(r.name);
+
+    card.classList.toggle("on", r.state === "on");
+    card.classList.toggle("armed", !!isArmed);
+    card.style.setProperty("--pc", `var(--pilot-${r.display.color || "green"})`);
+    card.querySelector("h2").textContent = label(r);
+    card.querySelector(".gpio").textContent = "GPIO " + r.gpio;
+    const desc = card.querySelector(".desc");
+    desc.textContent = r.description;
+    desc.hidden = !r.description;
+    card.querySelector(".val").textContent = stateText(r, r.state);
+
+    // Own state texts read as a target ("→ Gesperrt"); without them the plain verb ("Turn on").
+    const to = target(r);
+    const own = to === "on" ? r.display.onText : r.display.offText;
+    const text = isBusy ? "Switching…" : isArmed ? `Confirm: ${stateText(r, to)}` : own ? `→ ${own}` : `Turn ${to}`;
+    const btn = card.querySelector(".switch");
+    btn.disabled = isBusy || offline;
+    card.querySelector(".label").textContent = text;
+    btn.setAttribute("aria-label", `${text}, ${label(r)}`);
+
+    const hint = card.querySelector(".hint");
+    if (isArmed) { hint.className = "hint"; hint.textContent = `Tap again within ${ARM_MS / 1000} s to confirm · Esc cancels`; }
+    else if (!hint.classList.contains("err")) hint.textContent = "";
+
+    const c = r.lastChange;
+    const since = card.querySelector(".since"), when = card.querySelector(".when"), who = card.querySelector(".by");
+    if (c) {
+      const sec = age(r);
+      since.textContent = "for " + duration(sec);
+      when.textContent = `${ago(sec)} · ${piTime(c.time, sec)}`;
+      when.title = c.time;
+      when.classList.toggle("fresh", sec < 60);
+      [who.textContent, who.title] = by(c);
+    } else {
+      since.textContent = "";
+      when.textContent = "unknown";
+      when.title = "";
+      when.classList.remove("fresh");
+      who.textContent = "–";
+      who.title = "";
+    }
+  }
+}
+
+function disarm(redraw = true) {
+  if (!armed) return;
+  clearTimeout(armed.timer);
+  armed = null;
+  if (redraw) render();
+}
+
+function press(name) {
+  const r = relays.find(x => x.name === name);
+  if (!r || busy.has(name) || offline) return;
+  if (armed && armed.name === name) {
+    if (performance.now() - armed.at < MIN_CONFIRM_MS) return; // a double tap: stay armed
+    const to = armed.to;
+    disarm(false);
+    send(r, to);
+    return;
+  }
+  disarm(false); // only one armed button at a time
+  armed = { name, to: target(r), state: r.state, at: performance.now(), timer: setTimeout(() => disarm(), ARM_MS) };
+  setHint(name, "");
+  const bar = cards.get(name).querySelector(".bar");
+  bar.style.animation = "none"; void bar.offsetWidth; bar.style.animation = ""; // restart the countdown
+  render();
+}
+
+function setHint(name, msg) {
+  const hint = cards.get(name)?.querySelector(".hint");
+  if (!hint) return;
+  hint.className = msg ? "hint err" : "hint";
+  hint.textContent = msg;
+}
+
+async function send(r, to) {
+  busy.add(r.name);
+  render();
+  try {
+    const res = await request(`relays/${encodeURIComponent(r.name)}/${to}`, "PATCH");
+    Object.assign(r, res, { _at: Date.now() });
+    $("live").textContent = `${label(r)}: ${stateText(r, r.state)}`;
+  } catch (e) {
+    if (e.auth) { signOut(true); return; }
+    setHint(r.name, `Switching failed: ${e.message}`);
+    setTimeout(() => setHint(r.name, ""), 8000);
+  } finally {
+    busy.delete(r.name);
+    render();
+  }
+}
+
+function showLogin(rejected) {
+  stop();
+  disarm(false);
+  $("main").hidden = true;
+  $("login").hidden = false;
+  $("keyerr").hidden = !rejected;
+  $("apikey").value = "";
+  $("apikey").focus();
+}
+function signOut(rejected) { apiKey = ""; store(""); showLogin(rejected); }
+
+function stale(reason) {
+  offline = true;
+  disarm(false);
+  $("bannertext").textContent = reason + (lastOk ? ` Values below are stale since ${hms(lastOk)}.` : "");
+  $("banner").hidden = false;
+  render();
+}
+
+// request calls the API; an error answer {"error": …} becomes the message of the thrown error.
+async function request(path, method = "GET") {
+  const r = await fetch(path, { method, headers: { "X-API-Key": apiKey }, cache: "no-store" });
+  if (r.status === 401) throw Object.assign(new Error("unauthorized"), { auth: true });
+  if (!r.ok) {
+    let msg = `${r.status}`;
+    try { msg = (await r.json()).error || msg; } catch {}
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
+async function poll() {
+  try {
+    const [list, health] = await Promise.all([request("relays"), request("health")]);
+    lastOk = new Date();
+    offline = false;
+    relays = list.map(r => ({ ...r, _at: lastOk.getTime() }));
+    // A relay switched elsewhere drops a pending confirmation: it would no longer do what the button said.
+    if (armed) {
+      const r = relays.find(x => x.name === armed.name);
+      if (!r || r.state !== armed.state) disarm(false);
+    }
+    render();
+    $("updated").textContent = hms(lastOk);
+    $("banner").hidden = true;
+    $("version").textContent = health.appVersion;
+    $("host").textContent = health.hostname;
+    document.title = `relayhat · ${health.hostname}`;
+    $("uptime").textContent = uptime(health.uptimeSeconds);
+  } catch (e) {
+    if (e.auth) { signOut(true); return; }
+    stale(e instanceof TypeError ? "Cannot reach relayhat." : `relayhat returned an error: ${e.message}.`);
+  }
+}
+
+function start() {
+  stop();
+  $("login").hidden = true;
+  $("main").hidden = false;
+  poll();
+  timer = setInterval(poll, POLL_MS);
+}
+function stop() { clearInterval(timer); timer = null; }
+
+$("keyform").addEventListener("submit", e => {
+  e.preventDefault();
+  apiKey = $("apikey").value.trim();
+  if (!apiKey) return;
+  store(apiKey);
+  start();
+});
+$("signout").addEventListener("click", () => signOut(false));
+document.addEventListener("keydown", e => { if (e.key === "Escape") disarm(); });
+
+// Polling a hidden tab only loads the Pi; resume at once when the tab is shown again.
+document.addEventListener("visibilitychange", () => {
+  if (!apiKey) return;
+  if (document.hidden) { stop(); disarm(); } else start();
+});
+
+apiKey ? start() : showLogin(false);
+</script>
+</body>
+</html>

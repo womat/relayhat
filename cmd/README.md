@@ -29,13 +29,15 @@ The config file path can also be set via the environment variable `CONFIG_FILE`;
 
 | Method | Path                     | Auth    | Description              |
 |--------|--------------------------|---------|--------------------------|
+| GET    | `/`                      | –       | Web page                 |
 | GET    | `/version`               | –       | App name and version     |
 | GET    | `/health`                | API Key | Runtime health metrics   |
 | GET    | `/relays`                | API Key | List all relays          |
 | GET    | `/relays/{name}`         | API Key | Get relay state          |
 | PATCH  | `/relays/{name}/{state}` | API Key | Set relay (`on` / `off`) |
 
-Authentication via the `X-API-Key` header.
+Authentication via the `X-API-Key` header. The web page at `/` asks for the key in the browser; switching there
+takes two taps.
 
 ---
 

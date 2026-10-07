@@ -27,6 +27,13 @@ const (
 	StartLast = "last"
 )
 
+// Colours of a relay's pilot light in the web UI, see RelayConfig.Color.
+const (
+	ColorGreen = "green"
+	ColorRed   = "red"
+	ColorAmber = "amber"
+)
+
 // Valid GPIO range of the 40-pin header (BCM numbering). GPIO 0 and 1 are reserved
 // for the HAT EEPROM.
 const (
@@ -40,7 +47,7 @@ type Config struct {
 	LogLevel       string                 `yaml:"logLevel"`       // Log level: debug | info | warn | error
 	LogDestination string                 `yaml:"logDestination"` // Log output: stdout | stderr | null | /path/to/logfile
 	Webserver      WebserverConfig        `yaml:"webserver"`      // Webserver configuration
-	StateFile      string                 `yaml:"stateFile"`      // Last relay states, used by startState: last
+	StateFile      string                 `yaml:"stateFile"`      // Last state and switch of every relay; empty disables it
 	Relays         map[string]RelayConfig `yaml:"relay"`          // Relays by name
 }
 
@@ -64,6 +71,20 @@ type RelayConfig struct {
 	// last, the state stored in Config.StateFile. It does not apply to a relay that is taken
 	// over on a SIGHUP reload, which keeps its state.
 	StartState string `yaml:"startState"`
+
+	// Display settings for the web UI; they change nothing in the API paths or the switching.
+	Label   string `yaml:"label"`   // Name shown on the card, default the relay name
+	Color   string `yaml:"color"`   // Pilot light colour when on: green (default), red or amber
+	OnText  string `yaml:"onText"`  // Word for the on state, default ON
+	OffText string `yaml:"offText"` // Word for the off state, default OFF
+}
+
+// color returns Color with the empty default resolved to ColorGreen.
+func (r RelayConfig) color() string {
+	if r.Color == "" {
+		return ColorGreen
+	}
+	return r.Color
 }
 
 // startMode returns StartState with the empty default resolved to StartOff.
@@ -181,20 +202,15 @@ func (c *Config) Validate() error {
 		default:
 			return fmt.Errorf("relay %q: invalid startState %q, must be %s, %s or %s", name, relay.StartState, StartOff, StartOn, StartLast)
 		}
+
+		switch relay.color() {
+		case ColorGreen, ColorRed, ColorAmber:
+		default:
+			return fmt.Errorf("relay %q: invalid color %q, must be %s, %s or %s", name, relay.Color, ColorGreen, ColorRed, ColorAmber)
+		}
 	}
 
 	return nil
-}
-
-// usesLastState reports whether a relay restores its last state, which is what the state
-// file is read and written for.
-func (c *Config) usesLastState() bool {
-	for _, r := range c.Relays {
-		if r.startMode() == StartLast {
-			return true
-		}
-	}
-	return false
 }
 
 // minApiKeyLength is the length below which Warnings flags the API key as weak.

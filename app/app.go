@@ -29,6 +29,7 @@ import (
 	"strconv"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/womat/relayhat/pkg/relay"
 )
@@ -61,20 +62,51 @@ type App struct {
 	ctx         context.Context
 	cancelFunc  context.CancelFunc
 
-	openRelay func(gpio int) (*relay.Relay, error) // relay.New; replaced in tests
-	inherited map[int]*relay.Relay                 // open relays of the previous App by GPIO, consumed by Init
-	handover  map[int]*relay.Relay                 // open relays for the next App, set on restart
+	openRelay  func(gpio int) (*relay.Relay, error)                     // relay.New; replaced in tests
+	lookupAddr func(ctx context.Context, addr string) ([]string, error) // reverse DNS; replaced in tests
+	inherited  map[int]*Relay                                           // open relays of the previous App by GPIO, consumed by Init
+	handover   map[int]*Relay                                           // open relays for the next App, set on restart
 
 	mu     sync.RWMutex // protects app.relays
-	relays map[string]Relay
+	relays map[string]*Relay
 
 	stateMu sync.Mutex // serializes writes of the state file
 }
 
-// Relay combines the runtime relay instance with its config metadata.
+// Relay is an open relay with its configuration and its last switch. It outlives the App
+// that opened it when it is handed over on a reload.
 type Relay struct {
 	*relay.Relay
-	Description string
+	Config RelayConfig // replaced by Init with the configuration of the App that uses it
+
+	changeMu sync.Mutex
+	change   Change
+}
+
+// LastChange returns the relay's last switch; its Time is zero when it is not known.
+func (r *Relay) LastChange() Change {
+	r.changeMu.Lock()
+	defer r.changeMu.Unlock()
+	return r.change
+}
+
+// setChange records the relay's last switch.
+func (r *Relay) setChange(c Change) {
+	r.changeMu.Lock()
+	r.change = c
+	r.changeMu.Unlock()
+}
+
+// setHost adds the client's host name to the last switch, unless the relay has been switched
+// again since then, at.
+func (r *Relay) setHost(at time.Time, host string) bool {
+	r.changeMu.Lock()
+	defer r.changeMu.Unlock()
+	if !r.change.Time.Equal(at) {
+		return false
+	}
+	r.change.Host = host
+	return true
 }
 
 // New initializes the App struct but does not start services.
@@ -89,9 +121,10 @@ type Relay struct {
 // skips the check.
 //
 // inherited holds the still open relays of the previous App (see Handover), keyed by GPIO.
-// Init takes over every relay whose GPIO is still configured, so it keeps its state across
-// the reload, and closes the others. The App owns the map from here on; nil is a cold start.
-func New(config *Config, signals <-chan os.Signal, checkReload func() error, inherited map[int]*relay.Relay) *App {
+// Init takes over every relay whose GPIO is still configured, so it keeps its state and its
+// last switch across the reload, and closes the others. The App owns the map from here on;
+// nil is a cold start.
+func New(config *Config, signals <-chan os.Signal, checkReload func() error, inherited map[int]*Relay) *App {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &App{
@@ -107,8 +140,9 @@ func New(config *Config, signals <-chan os.Signal, checkReload func() error, inh
 		ctx:        ctx,
 		cancelFunc: cancel,
 		openRelay:  relay.New,
+		lookupAddr: net.DefaultResolver.LookupAddr,
 		inherited:  inherited,
-		relays:     make(map[string]Relay),
+		relays:     make(map[string]*Relay),
 	}
 }
 
@@ -143,7 +177,7 @@ func (app *App) Run() (*App, error) {
 // Init opens the configured relays, or takes them over from the previous App, switches the
 // opened ones to their start state and initializes the HTTP routes.
 func (app *App) Init() (err error) {
-	relays := make(map[string]Relay, len(app.config.Relays))
+	relays := make(map[string]*Relay, len(app.config.Relays))
 
 	defer func() {
 		// Close what is not used: inherited relays whose GPIO is no longer configured and,
@@ -171,7 +205,8 @@ func (app *App) Init() (err error) {
 			delete(app.inherited, cfg.GPIO)
 			state, _ := r.GetState()
 			slog.Info("Take over relay", "name", name, "gpio", cfg.GPIO, "state", state)
-			relays[name] = Relay{Relay: r, Description: cfg.Description}
+			r.Config = cfg
+			relays[name] = r
 			continue
 		}
 
@@ -180,7 +215,7 @@ func (app *App) Init() (err error) {
 		if err != nil {
 			return fmt.Errorf("failed to register relay %q: %w", name, err)
 		}
-		relays[name] = Relay{Relay: r, Description: cfg.Description}
+		relays[name] = &Relay{Relay: r, Config: cfg}
 		opened = append(opened, name)
 	}
 
@@ -192,8 +227,9 @@ func (app *App) Init() (err error) {
 	app.relays = relays
 	app.mu.Unlock()
 
-	// Write the state file once, so it exists from the first start on and a missing directory
-	// or missing write permission shows up now instead of at the first switch.
+	// Write the state file once, so it exists from the first start on, holds the start states
+	// and a missing directory or missing write permission shows up now instead of at the first
+	// switch.
 	app.saveStates()
 
 	// initRoutes should always be called at the end
@@ -204,22 +240,28 @@ func (app *App) Init() (err error) {
 
 // applyStartStates switches the opened relays to their configured start state. They come
 // from openRelay switched off, so only "on" and a stored "on" for "last" need an action.
-func (app *App) applyStartStates(relays map[string]Relay, opened []string) error {
-	var stored map[string]relay.State
-	if app.config.usesLastState() {
+//
+// A relay keeps the last switch from the state file when it starts in the state the file
+// holds for it, so a restart does not hide when and by whom it was switched; otherwise the
+// start is its last switch.
+func (app *App) applyStartStates(relays map[string]*Relay, opened []string) error {
+	var stored map[string]savedState
+	if app.config.StateFile != "" {
 		stored = readRelayStates(app.config.StateFile)
 	}
+	now := time.Now()
 
 	for _, name := range opened {
 		mode := app.config.Relays[name].startMode()
+		saved, hasSaved := stored[name]
 
 		state := relay.Off
 		switch mode {
 		case StartOn:
 			state = relay.On
 		case StartLast:
-			if s, ok := stored[name]; ok {
-				state = s
+			if hasSaved {
+				state = saved.State
 			}
 		}
 
@@ -228,16 +270,22 @@ func (app *App) applyStartStates(relays map[string]Relay, opened []string) error
 				return fmt.Errorf("failed to switch relay %q to its start state: %w", name, err)
 			}
 		}
+
+		if hasSaved && saved.State == state && !saved.Change.Time.IsZero() {
+			relays[name].setChange(saved.Change)
+		} else {
+			relays[name].setChange(Change{Time: now, Source: SourceStart})
+		}
 		slog.Info("Relay start state applied", "name", name, "startState", mode, "state", state)
 	}
 	return nil
 }
 
-// saveStates writes the current state of every relay to the state file. It does nothing
-// unless a relay uses startState last, and a failure is logged only: the relay is switched
+// saveStates writes the current state and last switch of every relay to the state file. It
+// does nothing without a stateFile, and a failure is logged only: the relay is switched
 // anyway, just its state will not survive a restart.
 func (app *App) saveStates() {
-	if !app.config.usesLastState() {
+	if app.config.StateFile == "" {
 		return
 	}
 
@@ -247,26 +295,26 @@ func (app *App) saveStates() {
 	// Read the states under stateMu, so the last write always holds the latest states, even
 	// when two switches save at the same time.
 	app.mu.RLock()
-	states := make(map[string]relay.State, len(app.relays))
+	states := make(map[string]savedState, len(app.relays))
 	for name, r := range app.relays {
 		if s, err := r.GetState(); err == nil {
-			states[name] = s
+			states[name] = savedState{State: s, Change: r.LastChange()}
 		}
 	}
 	app.mu.RUnlock()
 
 	if err := saveRelayStates(app.config.StateFile, states); err != nil {
-		slog.Error("Failed to save relay states, startState last will not restore them", "file", app.config.StateFile, "error", err)
+		slog.Error("Failed to save relay states, they will not survive a restart", "file", app.config.StateFile, "error", err)
 	}
 }
 
 // mergeRelays adds the relays of named to byGPIO and returns it.
-func mergeRelays(byGPIO map[int]*relay.Relay, named map[string]Relay) map[int]*relay.Relay {
+func mergeRelays(byGPIO map[int]*Relay, named map[string]*Relay) map[int]*Relay {
 	if byGPIO == nil {
-		byGPIO = make(map[int]*relay.Relay, len(named))
+		byGPIO = make(map[int]*Relay, len(named))
 	}
 	for _, r := range named {
-		byGPIO[r.GPIO()] = r.Relay
+		byGPIO[r.GPIO()] = r
 	}
 	return byGPIO
 }
@@ -283,7 +331,7 @@ func (app *App) Shutdown() <-chan struct{} {
 
 // Handover returns the relays a restart left open, keyed by GPIO, for the next App (see New).
 // It is empty after a stop.
-func (app *App) Handover() map[int]*relay.Relay {
+func (app *App) Handover() map[int]*Relay {
 	return app.handover
 }
 
@@ -353,7 +401,7 @@ func (app *App) shutdownProcedure(mode int) {
 	if mode == ModeRestart {
 		app.mu.Lock()
 		app.handover = mergeRelays(nil, app.relays)
-		app.relays = make(map[string]Relay)
+		app.relays = make(map[string]*Relay)
 		app.mu.Unlock()
 	}
 
@@ -389,7 +437,7 @@ func (app *App) Cleanup() error {
 			errs = errors.Join(errs, err)
 		}
 	}
-	app.relays = make(map[string]Relay)
+	app.relays = make(map[string]*Relay)
 
 	return errs
 }
