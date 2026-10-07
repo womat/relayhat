@@ -12,14 +12,15 @@
 //
 // # Signals
 //
-//   - SIGHUP  – hot-reload: closes GPIO pins, reloads config, restarts server
-//   - SIGTERM – graceful shutdown
+//   - SIGHUP  – hot-reload: validates the config file first and keeps running
+//     unchanged if it is broken; relays that stay configured keep their state
+//   - SIGTERM – graceful shutdown, switches all relays off
 //   - SIGINT  – graceful shutdown (Ctrl+C)
 //
 // # CLI Flags
 //
-//	-config  path to config file (default: /opt/relayhat/etc/config.yaml)
-//	         overridden by CONFIG_FILE env variable
+//	-config  path to config file (default: /opt/relayhat/etc/config.yaml,
+//	         or the CONFIG_FILE env variable if set; the flag wins over both)
 //	-debug   force log level "debug" and output to stdout
 //	-version print version and exit
 //	-about   print build metadata and exit
@@ -33,20 +34,25 @@
 //
 //	main.buildDate    – UTC timestamp of the build
 //	main.buildCommit  – short Git commit hash
+//	app.VERSION       – version from the Git tag
 package main
 
 import (
 	_ "embed"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
-	"relayhat/app"
 	"runtime"
+	"strings"
+	"syscall"
 	"time"
 
-	"github.com/womat/golib/xlog"
+	"github.com/womat/relayhat/app"
+	"github.com/womat/relayhat/pkg/relay"
 	"gopkg.in/yaml.v3"
 )
 
@@ -105,15 +111,29 @@ func main() {
 // It supports hot-reloading of the configuration and handles graceful shutdown.
 func run(configFile string, debug bool) int {
 
-	var logger *xlog.LoggerWrapper
+	// closeLog releases the current log file, if logging goes to one.
+	closeLog := func() error { return nil }
+	defer func() { _ = closeLog() }()
+
+	// inherited holds the relays a restart left open until the next App takes them over.
+	// If run returns before that, they are closed here, which switches them off.
+	var inherited map[int]*relay.Relay
 	defer func() {
-		if logger != nil {
-			logger.Close()
+		for _, r := range inherited {
+			_ = r.Close()
 		}
 	}()
 
 	fmt.Printf("Starting %s %s\n", app.MODULE, app.VERSION)
 	fmt.Printf("Loading configuration from: %s\n", configFile)
+
+	// Subscribe once for the whole process, not per App: between two lifecycles no App is
+	// listening, and without a subscription a SIGTERM or a second SIGHUP in that gap would end
+	// the process with the default action, before the relays are released. Here the signal
+	// waits in the buffer and the next App handles it.
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(signals)
 
 	for {
 		// Reload configuration on every restart
@@ -123,22 +143,32 @@ func run(configFile string, debug bool) int {
 			return 1
 		}
 
-		// Close previous logger if exists
-		if logger != nil {
-			logger.Close()
-		}
-
-		// Initialize logger
-		if logger, err = xlog.Init(config.LogDestination, config.LogLevel); err != nil {
+		// Switch to the new logger before closing the previous log file, so no line written
+		// in between goes to a file that is already closed.
+		logger, closeNew, err := newLogger(config.LogDestination, config.LogLevel)
+		if err != nil {
 			fmt.Printf("Failed to initialize logger: %s\n", err.Error())
 			return 1
 		}
-
-		slog.SetDefault(logger.Logger)
+		slog.SetDefault(logger)
+		_ = closeLog()
+		closeLog = closeNew
 		slog.Info("Logging initialized/reloaded", "logLevel", config.LogLevel)
 
-		// Create and run the application
-		a, err := app.New(config, filepath.Join("/opt", app.MODULE)).Run()
+		for _, warning := range config.Warnings() {
+			slog.Warn("Configuration warning", "warning", warning)
+		}
+
+		// A SIGHUP restart only goes ahead when the config file still loads and validates;
+		// otherwise the running App keeps going with its current configuration.
+		checkReload := func() error {
+			_, err := loadConfig(configFile, debug)
+			return err
+		}
+
+		// Create and run the application. From here on the App owns the inherited relays.
+		a, err := app.New(config, signals, checkReload, inherited).Run()
+		inherited = nil
 		if err != nil {
 			slog.Error("Critical error occurred, shutting down", "error", err)
 			return 1
@@ -148,9 +178,10 @@ func run(configFile string, debug bool) int {
 		select {
 		case <-a.Restart():
 			slog.Info("Reloading configuration", "configFile", configFile)
+			inherited = a.Handover()
 			time.Sleep(time.Second) // prevent tight restart loops
 		case <-a.Shutdown():
-			slog.Debug("Shutdown requested")
+			slog.Info("Shutdown requested")
 			return 0
 		}
 	}
@@ -163,9 +194,9 @@ func About() string {
 		"Binary":   filepath.Join("/opt", app.MODULE, "bin", app.MODULE),
 		"Date":     buildDate,
 		"Commit":   buildCommit,
-		"Desc":     app.MODULE + " is demo app",
+		"Desc":     app.MODULE + " switches BC Robotics Relay HATs on a Raspberry Pi through an HTTPS REST API",
 		"Help":     filepath.Join("/opt", app.MODULE, "bin", app.MODULE) + " --help",
-		"Main":     filepath.Join("/opt/src", app.MODULE, "cmd", app.MODULE, "main.go"),
+		"Main":     filepath.Join("/opt/src", app.MODULE, "cmd", "main.go"),
 		"ProgLang": runtime.Version(),
 		"Repo":     "https://github.com/womat/" + app.MODULE + ".git",
 		"Version":  app.VERSION,
@@ -198,4 +229,43 @@ func loadConfig(configFile string, debug bool) (*app.Config, error) {
 	}
 
 	return config, nil
+}
+
+// newLogger returns a text logger writing to dest - "stdout", "stderr", "null" or a file path,
+// opened for appending - at the given level (debug, info, warn/warning, error; anything else
+// is info). Source locations are added at debug level only. The returned function closes the
+// log file and is a no-op for the other destinations.
+func newLogger(dest, level string) (*slog.Logger, func() error, error) {
+	var out io.Writer
+	closeFn := func() error { return nil }
+
+	switch strings.ToLower(strings.TrimSpace(dest)) {
+	case "stdout":
+		out = os.Stdout
+	case "stderr":
+		out = os.Stderr
+	case "null":
+		out = io.Discard
+	default:
+		file, err := os.OpenFile(dest, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o640)
+		if err != nil {
+			return nil, nil, err
+		}
+		out, closeFn = file, file.Close
+	}
+
+	var lvl slog.Level
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "debug":
+		lvl = slog.LevelDebug
+	case "warn", "warning":
+		lvl = slog.LevelWarn
+	case "error":
+		lvl = slog.LevelError
+	default:
+		lvl = slog.LevelInfo
+	}
+
+	handler := slog.NewTextHandler(out, &slog.HandlerOptions{AddSource: lvl == slog.LevelDebug, Level: lvl})
+	return slog.New(handler), closeFn, nil
 }

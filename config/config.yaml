@@ -1,5 +1,9 @@
 # =============================================================================
 # relayhat configuration
+#
+# ${VAR} is replaced with the environment variable VAR (only this form, a bare
+# "$" stays as it is), e.g. apiKey: ${RELAYHAT_API_KEY}.
+# Unknown keys are an error, so a typo cannot silently fall back to a default.
 # =============================================================================
 
 # logLevel defines the minimum log level.
@@ -8,11 +12,18 @@
 logLevel: info
 
 # logDestination defines where logs are written to.
-# Supported values: stdout | stderr | /path/to/logfile
+# Supported values: stdout | stderr | null | /path/to/logfile
 logDestination: stdout
 
 # environment: dev | prod
+# dev falls back to the embedded self-signed certificate when certFile is
+# missing; prod refuses to start without certFile.
 env: dev
+
+# stateFile keeps the last state of every relay for startState: last. It is
+# written after every switch and once on start; the directory must exist and be
+# writable. Only used when a relay has startState: last.
+stateFile: /opt/relayhat/data/state.yaml
 
 # =============================================================================
 # Webserver configuration (HTTPS)
@@ -24,7 +35,8 @@ webserver:
   # Port the HTTPS server listens on
   listenPort: 8443
 
-  # Global API key for protected endpoints
+  # Global API key for protected endpoints, sent as X-API-Key header.
+  # Use a random key of at least 16 characters; the example value is logged as a warning.
   apiKey: changeme!
 
   # TLS private key file
@@ -49,11 +61,23 @@ webserver:
 
 # =============================================================================
 # relay configuration
+#
+# name: relay name used in the API (/relays/{name})
+# gpio: BCM number 2..27, each gpio at most once
+# startState: state after the process starts (boot, crash, systemctl restart):
+#   off  (default) switched off
+#   on   switched on
+#   last the state before, from stateFile; off if it has none (first start,
+#        missing or damaged file)
+# A SIGHUP reload keeps the state of every relay whose gpio stays configured;
+# startState applies only to relays that are added by the reload.
+# A stop (SIGTERM/SIGINT) switches all relays off.
 # =============================================================================
 relay:
   relay1:
     description: "gpio 4 available for Raspberry Pi 4 Channel Relay HAT and Raspberry Pi Zero Relay HAT"
     gpio: 4
+    startState: off
   relay2:
     description: "gpio 17 available for Raspberry Pi 4 Channel Relay HAT and Raspberry Pi Zero Relay HAT"
     gpio: 17

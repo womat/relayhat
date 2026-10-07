@@ -40,7 +40,7 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/web.ApiError"
                         }
                     }
                 }
@@ -74,13 +74,13 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/web.ApiError"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/web.ApiError"
                         }
                     }
                 }
@@ -120,19 +120,19 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/web.ApiError"
                         }
                     },
                     "404": {
                         "description": "Relay not found",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/web.ApiError"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/web.ApiError"
                         }
                     }
                 }
@@ -150,7 +150,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "relays"
+                    "relay"
                 ],
                 "summary": "Set relay state",
                 "parameters": [
@@ -177,21 +177,27 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Bad request",
+                        "description": "Invalid state",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/web.ApiError"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/web.ApiError"
                         }
                     },
                     "404": {
                         "description": "Relay not found",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/web.ApiError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/web.ApiError"
                         }
                     }
                 }
@@ -283,6 +289,14 @@ const docTemplate = `{
                 "uptimeSeconds": {
                     "description": "Application uptime in seconds",
                     "type": "number"
+                }
+            }
+        },
+        "web.ApiError": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
                 }
             }
         }

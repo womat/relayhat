@@ -2,9 +2,9 @@ package app
 
 import (
 	"net/http"
-	"relayhat/app/service/health"
 
 	"github.com/womat/golib/web"
+	"github.com/womat/relayhat/app/service/health"
 )
 
 // HandleHealth returns the current health data of the application.
@@ -15,7 +15,7 @@ import (
 //	@Produce		json
 //	@Security		ApiKeyAuth
 //	@Success		200	{object}	health.Model	"Health data successfully retrieved"
-//	@Failure		401	{string}	string			"Unauthorized"
+//	@Failure		401	{object}	web.ApiError	"Unauthorized"
 //	@Router			/health [get]
 func (app *App) HandleHealth() http.Handler {
 	return http.HandlerFunc(

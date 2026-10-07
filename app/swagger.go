@@ -5,7 +5,7 @@ package app
 import (
 	"net/http"
 
-	_ "relayhat/docs"
+	_ "github.com/womat/relayhat/docs"
 
 	httpSwagger "github.com/swaggo/http-swagger"
 )
