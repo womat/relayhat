@@ -11,9 +11,10 @@ import (
 
 var (
 	errRelayNotFound = errors.New("relay not found")
-	errInvalidState  = errors.New("invalid state: must be \"on\" or \"off\"") // ← neu
+	errInvalidState  = errors.New("invalid state: must be \"on\" or \"off\"")
 )
 
+// HTTPResponse is the JSON representation of a relay.
 type HTTPResponse struct {
 	Name        string `json:"name"`
 	State       string `json:"state"`
@@ -89,7 +90,7 @@ func (app *App) HandleRelayGetAll() http.Handler {
 //
 //	@Summary		Set relay state
 //	@Description	Sets the state of a specific relay by name.
-//	@Tags			relays
+//	@Tags			relay
 //	@Produce		json
 //	@Security		ApiKeyAuth
 //	@Param			name	path		string			true	"Relay name"
@@ -98,6 +99,7 @@ func (app *App) HandleRelayGetAll() http.Handler {
 //	@Failure		400		{string}	string			"Bad request"
 //	@Failure		401		{string}	string			"Unauthorized"
 //	@Failure		404		{string}	string			"Relay not found"
+//	@Failure		500		{string}	string			"Internal server error"
 //	@Router			/relays/{name}/{state} [patch]
 func (app *App) HandleRelaySet() http.Handler {
 	return http.HandlerFunc(

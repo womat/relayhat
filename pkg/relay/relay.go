@@ -1,3 +1,9 @@
+// Package relay switches a single relay through a Raspberry Pi GPIO output.
+//
+// It is hardware-facing only: a Relay knows its pin and its state, nothing of
+// names, descriptions or configuration. New opens the pin through golib's
+// gpio/rpi; NewWithPin takes any gpio.Pin, which is how the tests drive it with
+// golib's in-memory gpio/rpiemu.
 package relay
 
 import (
@@ -17,6 +23,7 @@ var (
 	ErrUnknownState = errors.New("unknown state")
 )
 
+// State is the switching state of a relay.
 type State int
 
 // String returns the textual representation of the relay state.
@@ -30,26 +37,43 @@ func (s State) String() string {
 	return "unknown"
 }
 
+// Relay is one relay driven by a GPIO output pin.
 type Relay struct {
 	gpioPin gpio.Pin
 }
 
-// New creates a relay for the given GPIO pin and initializes it to off.
+// New opens the given GPIO pin as output and returns a relay that is switched off.
 func New(pin int) (*Relay, error) {
 	p, err := rpi.NewPin(pin, rpi.WithMode(gpio.Output))
 	if err != nil {
 		return nil, err
 	}
 
-	if err = p.SetValue(gpio.Low); err != nil {
+	r, err := NewWithPin(p)
+	if err != nil {
 		_ = p.Close()
+		return nil, err
+	}
+	return r, nil
+}
+
+// NewWithPin returns a relay on an already opened output pin and switches it off.
+// On error the pin is left open; closing it is up to the caller.
+func NewWithPin(p gpio.Pin) (*Relay, error) {
+	if err := p.SetValue(gpio.Low); err != nil {
 		return nil, err
 	}
 
 	return &Relay{gpioPin: p}, nil
 }
 
-// Close releases the underlying GPIO pin resources.
+// GPIO returns the number of the relay's GPIO pin.
+func (r *Relay) GPIO() int {
+	return r.gpioPin.Number()
+}
+
+// Close releases the GPIO pin. The rpi backend reconfigures the line as input
+// first, which switches the relay off.
 func (r *Relay) Close() error {
 	return r.gpioPin.Close()
 }
@@ -57,29 +81,11 @@ func (r *Relay) Close() error {
 // TurnOn switches the relay to the on state.
 func (r *Relay) TurnOn() error {
 	return r.gpioPin.SetValue(gpio.High)
-
 }
 
 // TurnOff switches the relay to the off state.
 func (r *Relay) TurnOff() error {
 	return r.gpioPin.SetValue(gpio.Low)
-}
-
-// Toggle switches the relay to the opposite state and returns the new state.
-func (r *Relay) Toggle() (State, error) {
-	s, err := r.GetState()
-	if err != nil {
-		return Unknown, err
-	}
-
-	switch s {
-	case Off:
-		return On, r.gpioPin.SetValue(gpio.High)
-
-	case On:
-		return Off, r.gpioPin.SetValue(gpio.Low)
-	}
-	return Unknown, ErrUnknownState
 }
 
 // GetState returns the relay's current state.
@@ -91,9 +97,9 @@ func (r *Relay) GetState() (State, error) {
 
 	switch s {
 	case gpio.Low:
-		return Off, err
+		return Off, nil
 	case gpio.High:
-		return On, err
+		return On, nil
 	}
 	return Unknown, ErrUnknownState
 }

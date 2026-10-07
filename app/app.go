@@ -1,3 +1,19 @@
+// Package app provides the main application wiring for relayhat.
+//
+// It opens the configured relays, serves the HTTPS API and handles the OS signals for
+// graceful stops and configuration reloads. One App lives for one configuration;
+// cmd/main.go builds a new one on every reload and hands the open relays over to it.
+//
+// Usage:
+//
+//	cfg, err := app.LoadConfig(file)          // then cfg.Validate()
+//	signals := make(chan os.Signal, 1)
+//	signal.Notify(signals, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGINT)
+//	a, err := app.New(cfg, signals, checkReload, inherited).Run()
+//	select {
+//	case <-a.Restart():  // inherited = a.Handover(), build the next App
+//	case <-a.Shutdown(): // exit
+//	}
 package app
 
 import (
@@ -5,10 +21,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"os"
-	"os/signal"
+	"slices"
 	"strconv"
 	"sync"
 	"syscall"
@@ -16,18 +33,16 @@ import (
 	"github.com/womat/relayhat/pkg/relay"
 )
 
-// VERSION holds the version information with the following logic in mind
+// VERSION is the application version, following semantic versioning
+// as described in https://semver.org/.
 //
-//	4 ... fixed
-//	0 ... year 2020, 1->year 2021, etc.
-//	7 ... month of year (7=July)
-//	the date format after the + is always the first of the month
-//
-// VERSION differs from semantic versioning as described in https://semver.org/
-// but we keep the correct syntax.
+// It is not maintained in source: the Git tag is the single source of truth and
+// the value is injected at build time via -ldflags (see Makefile and
+// .goreleaser.yaml). The "dev" default applies to builds made without them.
+var VERSION = "dev"
+
 const (
-	VERSION = "1.6.3+20260315"
-	MODULE  = "relayhat"
+	MODULE = "relayhat"
 
 	ModeStop    = 0
 	ModeRestart = 1
@@ -35,14 +50,20 @@ const (
 
 // App holds the application's runtime state and lifecycle dependencies.
 type App struct {
-	wg         sync.WaitGroup // wait group to track running webserver
-	baseDir    string         // working directory
-	config     *Config        // app configuration
-	web        *http.Server   // HTTP server
-	restart    chan struct{}  // signals application restart
-	shutdown   chan struct{}  // signals application shutdown
-	ctx        context.Context
-	cancelFunc context.CancelFunc
+	wg          sync.WaitGroup   // tracks the web server goroutine
+	config      *Config          // app configuration
+	web         *http.Server     // HTTP server
+	signals     <-chan os.Signal // OS signals, subscribed once by the caller for all lifecycles
+	checkReload func() error     // loads and validates the config file before a SIGHUP restart
+	serverErr   chan error       // reports a web server that stopped on its own
+	restart     chan struct{}    // signals application restart
+	shutdown    chan struct{}    // signals application shutdown
+	ctx         context.Context
+	cancelFunc  context.CancelFunc
+
+	openRelay func(gpio int) (*relay.Relay, error) // relay.New; replaced in tests
+	inherited map[int]*relay.Relay                 // open relays of the previous App by GPIO, consumed by Init
+	handover  map[int]*relay.Relay                 // open relays for the next App, set on restart
 
 	mu     sync.RWMutex // protects app.relays
 	relays map[string]Relay
@@ -54,20 +75,37 @@ type Relay struct {
 	Description string
 }
 
-// New constructs an App with the configured server address and lifecycle channels.
-func New(config *Config, baseDir string) *App {
+// New initializes the App struct but does not start services.
+//
+// signals must already be subscribed (signal.Notify) to SIGHUP, SIGTERM and SIGINT, and stay
+// subscribed across restarts: a signal arriving while one App is torn down and the next is
+// built then waits in the channel for the next App, instead of hitting the default action,
+// which would end the process without releasing the relays.
+//
+// checkReload is called on SIGHUP before anything is torn down. If it reports an error, the
+// restart is refused and the App keeps running with its current configuration. Passing nil
+// skips the check.
+//
+// inherited holds the still open relays of the previous App (see Handover), keyed by GPIO.
+// Init takes over every relay whose GPIO is still configured, so it keeps its state across
+// the reload, and closes the others. The App owns the map from here on; nil is a cold start.
+func New(config *Config, signals <-chan os.Signal, checkReload func() error, inherited map[int]*relay.Relay) *App {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &App{
-		config:  config,
-		baseDir: baseDir,
+		config:      config,
+		signals:     signals,
+		checkReload: checkReload,
 		web: &http.Server{
 			Addr: net.JoinHostPort(config.Webserver.ListenHost, strconv.Itoa(config.Webserver.ListenPort)),
 		},
+		serverErr:  make(chan error, 1),
 		restart:    make(chan struct{}),
 		shutdown:   make(chan struct{}),
 		ctx:        ctx,
 		cancelFunc: cancel,
+		openRelay:  relay.New,
+		inherited:  inherited,
 		relays:     make(map[string]Relay),
 	}
 }
@@ -78,15 +116,17 @@ func (app *App) Run() (*App, error) {
 		return app, err
 	}
 
-	// here start your services
-
 	// handle the OS signals
 	app.HandleOSSignals()
 
 	slog.Info("Starting web server", "url", app.web.Addr)
-	err := app.StartWebServer()
-	if err != nil {
+	if err := app.StartWebServer(); err != nil {
 		slog.Error("Web server failed to start", "url", app.web.Addr, "error", err)
+		// Stop the signal handler and switch the relays off, the caller exits.
+		app.cancelFunc()
+		if cerr := app.Cleanup(); cerr != nil {
+			slog.Error("Cleanup failed", "error", cerr)
+		}
 		return app, err
 	}
 
@@ -98,34 +138,65 @@ func (app *App) Run() (*App, error) {
 	return app, nil
 }
 
-// Init initializes relays and HTTP routes from the current configuration.
-func (app *App) Init() error {
+// Init opens the configured relays, or takes them over from the previous App, and
+// initializes the HTTP routes.
+func (app *App) Init() (err error) {
+	relays := make(map[string]Relay, len(app.config.Relays))
 
-	// register the relay
-	// Re-initialise the relay map on every call so that relay names removed
-	// from the config do not survive a SIGHUP hot-reload into the next run.
-	app.mu.Lock()
-	app.relays = make(map[string]Relay)
-	for name, config := range app.config.Relays {
-		slog.Info("Register relay", "name", name, "gpio", config.GPIO)
-		r, err := relay.New(config.GPIO)
+	defer func() {
+		// Close what is not used: inherited relays whose GPIO is no longer configured and,
+		// if Init fails, every relay it has already opened or taken over.
+		if err != nil {
+			app.inherited = mergeRelays(app.inherited, relays)
+		}
+		for gpio, r := range app.inherited {
+			slog.Info("Closing relay that is no longer configured", "gpio", gpio)
+			if cerr := r.Close(); cerr != nil {
+				slog.Error("Failed to close relay", "gpio", gpio, "error", cerr)
+			}
+		}
+		app.inherited = nil
+	}()
 
+	// Sorted, so the log shows the relays in the same order on every start.
+	for _, name := range slices.Sorted(maps.Keys(app.config.Relays)) {
+		cfg := app.config.Relays[name]
+
+		if r, ok := app.inherited[cfg.GPIO]; ok {
+			delete(app.inherited, cfg.GPIO)
+			state, _ := r.GetState()
+			slog.Info("Take over relay", "name", name, "gpio", cfg.GPIO, "state", state)
+			relays[name] = Relay{Relay: r, Description: cfg.Description}
+			continue
+		}
+
+		slog.Info("Register relay", "name", name, "gpio", cfg.GPIO)
+		r, err := app.openRelay(cfg.GPIO)
 		if err != nil {
 			return fmt.Errorf("failed to register relay %q: %w", name, err)
 		}
-
-		app.relays[name] = Relay{
-			Relay:       r,
-			Description: config.Description,
-		}
+		relays[name] = Relay{Relay: r, Description: cfg.Description}
 	}
 
+	app.mu.Lock()
+	app.relays = relays
 	app.mu.Unlock()
 
 	// initRoutes should always be called at the end
 	slog.Debug("Initializing API routes")
 	app.SetupRoutes()
 	return nil
+}
+
+// mergeRelays adds the relays of named to byGPIO and returns it.
+func mergeRelays(byGPIO map[int]*relay.Relay, named map[string]Relay) map[int]*relay.Relay {
+	if byGPIO == nil {
+		byGPIO = make(map[int]*relay.Relay, len(named))
+	}
+	for _, r := range named {
+		byGPIO[r.GPIO()] = r.Relay
+	}
+	return byGPIO
 }
 
 // Restart returns a read-only channel for restart signals.
@@ -138,50 +209,81 @@ func (app *App) Shutdown() <-chan struct{} {
 	return app.shutdown
 }
 
-// HandleOSSignals listens for SIGHUP, SIGTERM, and SIGINT signals.
+// Handover returns the relays a restart left open, keyed by GPIO, for the next App (see New).
+// It is empty after a stop.
+func (app *App) Handover() map[int]*relay.Relay {
+	return app.handover
+}
+
+// HandleOSSignals handles SIGHUP (restart), SIGTERM and SIGINT (stop) from app.signals, and
+// restarts the App when the web server stopped on its own.
+//
+// The subscription itself belongs to the caller and outlives this App, so nothing here
+// stops or resets it; one goroutine per App consumes at most one signal. Being the only
+// caller of shutdownProcedure, it also rules out two shutdowns running at once.
 func (app *App) HandleOSSignals() {
 
 	go func() {
-		sig := make(chan os.Signal, 1)
-		signal.Notify(sig, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGINT)
-		defer signal.Stop(sig) // Cleanup: rollback signal.Notify
-
 		slog.Debug("Starting signal handler")
 
 		// Use select instead of a plain channel receive so the goroutine has
 		// two exit paths and always terminates cleanly:
-		//   - a signal is received and handled, or
-		//   - the context is cancelled externally (e.g. from a concurrent shutdown).
-		// Without this, the goroutine would block forever after signal.Reset()
-		// on a SIGHUP restart, leaking one goroutine per reload cycle.
-		select {
-		case receivedSignal := <-sig:
-			slog.Info("Received OS signal", "signal", receivedSignal)
-			switch receivedSignal {
-			case syscall.SIGHUP:
-				slog.Info("SIGHUP received, initiating restart")
+		//   - a signal or a server error is received and handled, or
+		//   - the context is cancelled externally (e.g. from a failed start).
+		// Without the second path the goroutine would outlive its App and take
+		// the next signal away from the App that replaced it. The loop only
+		// continues after a SIGHUP whose config was rejected.
+		for {
+			select {
+			case receivedSignal := <-app.signals:
+				slog.Info("Received OS signal", "signal", receivedSignal)
+				switch receivedSignal {
+				case syscall.SIGHUP:
+					if app.checkReload != nil {
+						if err := app.checkReload(); err != nil {
+							slog.Error("Config reload rejected, keeping the running configuration", "error", err)
+							continue
+						}
+					}
+					slog.Info("SIGHUP received, initiating restart")
+					app.shutdownProcedure(ModeRestart)
+				case syscall.SIGTERM, syscall.SIGINT:
+					slog.Info("SIGTERM/SIGINT received, stopping")
+					app.shutdownProcedure(ModeStop)
+				}
+				return
+			case err := <-app.serverErr:
+				slog.Error("Web server stopped unexpectedly, initiating restart", "error", err)
 				app.shutdownProcedure(ModeRestart)
-			case syscall.SIGTERM, syscall.SIGINT:
-				slog.Info("SIGTERM/SIGINT received, stopping")
-				app.shutdownProcedure(ModeStop)
+				return
+			case <-app.ctx.Done():
+				// Context was cancelled externally – exit without triggering
+				// a second shutdown procedure.
+				slog.Debug("Signal handler: context cancelled, exiting goroutine")
+				return
 			}
-		case <-app.ctx.Done():
-			// Context was cancelled externally – exit without triggering
-			// a second shutdown procedure.
-			slog.Debug("Signal handler: context cancelled, exiting goroutine")
 		}
 	}()
 }
 
 // shutdownProcedure gracefully stops or restarts the app based on mode.
-//   - ModeStop: graceful shutdown the web server, Cleanup app resources and exit the application.
-//   - ModeRestart: graceful shutdown the web server and Cleanup app resources and restart the application.
+//   - ModeStop: shut down the web server, switch the relays off and exit the application.
+//   - ModeRestart: shut down the web server and hand the open relays over to the next App,
+//     so a reload does not switch them.
 func (app *App) shutdownProcedure(mode int) {
 	slog.Info("Initiating shutdown", "mode", mode)
 
 	// cancel the application context to stop all running goroutines
 	app.cancelFunc()
-	app.wg.Wait() //wait for the web server to shutdown before cleaning up resources
+	// Wait for the web server, so no request switches a relay that is handed over or closed.
+	app.wg.Wait()
+
+	if mode == ModeRestart {
+		app.mu.Lock()
+		app.handover = mergeRelays(nil, app.relays)
+		app.relays = make(map[string]Relay)
+		app.mu.Unlock()
+	}
 
 	if err := app.Cleanup(); err != nil {
 		slog.Error("Cleanup failed", "error", err)
@@ -189,7 +291,7 @@ func (app *App) shutdownProcedure(mode int) {
 
 	switch mode {
 	case ModeRestart:
-		slog.Info("Shutdown complete, restarting")
+		slog.Info("Shutdown complete, restarting", "relaysHandedOver", len(app.handover))
 		app.restart <- struct{}{}
 		// Channels are intentionally left open: cmd/main.go receives the restart
 		// signal and calls New(), which creates fresh channels for the next lifecycle.
@@ -200,18 +302,22 @@ func (app *App) shutdownProcedure(mode int) {
 	}
 }
 
-// Cleanup releases application resources during shutdown or restart.
+// Cleanup closes the relays the App still owns, which switches them off. Relays handed
+// over for a restart are not among them.
 func (app *App) Cleanup() error {
 	var errs error
 
-	// here cleanup your service
+	app.mu.Lock()
+	defer app.mu.Unlock()
+
 	for name, r := range app.relays {
-		slog.Info("Cleaning up relay", "name", name)
+		slog.Info("Closing relay", "name", name)
 		if err := r.Close(); err != nil {
-			slog.Error("Failed to cleanup relay", "name", name, "error", err)
+			slog.Error("Failed to close relay", "name", name, "error", err)
 			errs = errors.Join(errs, err)
 		}
 	}
+	app.relays = make(map[string]Relay)
 
 	return errs
 }

@@ -1,5 +1,9 @@
 # =============================================================================
 # relayhat configuration
+#
+# ${VAR} is replaced with the environment variable VAR (only this form, a bare
+# "$" stays as it is), e.g. apiKey: ${RELAYHAT_API_KEY}.
+# Unknown keys are an error, so a typo cannot silently fall back to a default.
 # =============================================================================
 
 # logLevel defines the minimum log level.
@@ -8,10 +12,12 @@
 logLevel: info
 
 # logDestination defines where logs are written to.
-# Supported values: stdout | stderr | /path/to/logfile
+# Supported values: stdout | stderr | null | /path/to/logfile
 logDestination: stdout
 
 # environment: dev | prod
+# dev falls back to the embedded self-signed certificate when certFile is
+# missing; prod refuses to start without certFile.
 env: dev
 
 # =============================================================================
@@ -24,7 +30,8 @@ webserver:
   # Port the HTTPS server listens on
   listenPort: 8443
 
-  # Global API key for protected endpoints
+  # Global API key for protected endpoints, sent as X-API-Key header.
+  # Use a random key of at least 16 characters; the example value is logged as a warning.
   apiKey: changeme!
 
   # TLS private key file
@@ -49,6 +56,10 @@ webserver:
 
 # =============================================================================
 # relay configuration
+#
+# name: relay name used in the API (/relays/{name})
+# gpio: BCM number 2..27, each gpio at most once
+# A SIGHUP reload keeps the state of every relay whose gpio stays configured.
 # =============================================================================
 relay:
   relay1:

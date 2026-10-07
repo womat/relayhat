@@ -1,5 +1,9 @@
 package app
 
+// HTTP routes and global middleware. /version is public; /health and the relay endpoints
+// require the API key (X-API-Key). Swagger UI is registered only in builds with the swagger
+// tag. Middleware, outermost first: logging, IP filter, CORS.
+
 import (
 	"log/slog"
 	"net/http"
@@ -9,11 +13,10 @@ import (
 
 // SetupRoutes configures the application's routes and shared HTTP middleware.
 func (app *App) SetupRoutes() {
+	// API key only: with JwtSecret and JwtID left empty, golib's JWT path stays disabled.
 	webCfg := web.Config{
-		ApiKey:    app.config.Webserver.ApiKey,
-		JwtSecret: app.config.Webserver.JwtSecret,
-		JwtID:     app.config.Webserver.JwtID,
-		AppName:   MODULE,
+		ApiKey:  app.config.Webserver.ApiKey,
+		AppName: MODULE,
 	}
 
 	mux := http.NewServeMux()
@@ -33,8 +36,9 @@ func (app *App) SetupRoutes() {
 	mux.Handle("GET /relays/{name}", web.WithAuth(app.HandleRelayGetOne(), webCfg))
 	mux.Handle("PATCH /relays/{name}/{state}", web.WithAuth(app.HandleRelaySet(), webCfg))
 
-	// Apply global middleware: CORS + IP filter
-	handler := web.WithCORS(mux)
+	// Apply global middleware: CORS + IP filter. CORS advertises only the methods the API
+	// serves: GET, PATCH for switching, and the preflight OPTIONS.
+	handler := web.WithCORS(mux, web.WithAllowedMethods(http.MethodGet, http.MethodPatch, http.MethodOptions))
 	handler = web.WithIPFilter(handler, app.config.Webserver.AllowedIPs, app.config.Webserver.BlockedIPs)
 	handler = WithLogging(handler)
 	app.web.Handler = handler
