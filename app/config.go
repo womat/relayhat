@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -17,6 +18,13 @@ import (
 const (
 	ProdEnv = "prod"
 	DevEnv  = "dev"
+)
+
+// Start states of a relay after a (re)start of the process, see RelayConfig.StartState.
+const (
+	StartOff  = "off"
+	StartOn   = "on"
+	StartLast = "last"
 )
 
 // Valid GPIO range of the 40-pin header (BCM numbering). GPIO 0 and 1 are reserved
@@ -32,6 +40,7 @@ type Config struct {
 	LogLevel       string                 `yaml:"logLevel"`       // Log level: debug | info | warn | error
 	LogDestination string                 `yaml:"logDestination"` // Log output: stdout | stderr | null | /path/to/logfile
 	Webserver      WebserverConfig        `yaml:"webserver"`      // Webserver configuration
+	StateFile      string                 `yaml:"stateFile"`      // Last relay states, used by startState: last
 	Relays         map[string]RelayConfig `yaml:"relay"`          // Relays by name
 }
 
@@ -50,6 +59,19 @@ type WebserverConfig struct {
 type RelayConfig struct {
 	GPIO        int    `yaml:"gpio"`
 	Description string `yaml:"description"`
+
+	// StartState is the state a relay is switched to when it is opened: off (default), on, or
+	// last, the state stored in Config.StateFile. It does not apply to a relay that is taken
+	// over on a SIGHUP reload, which keeps its state.
+	StartState string `yaml:"startState"`
+}
+
+// startMode returns StartState with the empty default resolved to StartOff.
+func (r RelayConfig) startMode() string {
+	if r.StartState == "" {
+		return StartOff
+	}
+	return r.StartState
 }
 
 // NewConfig returns a Config initialized with default values.
@@ -58,6 +80,7 @@ func NewConfig() *Config {
 		Env:            DevEnv,
 		LogLevel:       "info",
 		LogDestination: "stdout",
+		StateFile:      filepath.Join("/opt", MODULE, "data", "state.yaml"),
 		Webserver: WebserverConfig{
 			ListenHost: "0.0.0.0",
 			ListenPort: 8443,
@@ -148,9 +171,30 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("relays %q and %q both use gpio %d", other, name, relay.GPIO)
 		}
 		gpioUsedBy[relay.GPIO] = name
+
+		switch relay.startMode() {
+		case StartOff, StartOn:
+		case StartLast:
+			if c.StateFile == "" {
+				return fmt.Errorf("relay %q: startState %s needs a stateFile", name, StartLast)
+			}
+		default:
+			return fmt.Errorf("relay %q: invalid startState %q, must be %s, %s or %s", name, relay.StartState, StartOff, StartOn, StartLast)
+		}
 	}
 
 	return nil
+}
+
+// usesLastState reports whether a relay restores its last state, which is what the state
+// file is read and written for.
+func (c *Config) usesLastState() bool {
+	for _, r := range c.Relays {
+		if r.startMode() == StartLast {
+			return true
+		}
+	}
+	return false
 }
 
 // minApiKeyLength is the length below which Warnings flags the API key as weak.

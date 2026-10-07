@@ -20,6 +20,11 @@ logDestination: stdout
 # missing; prod refuses to start without certFile.
 env: dev
 
+# stateFile keeps the last state of every relay for startState: last. It is
+# written after every switch and once on start; the directory must exist and be
+# writable. Only used when a relay has startState: last.
+stateFile: /opt/relayhat/data/state.yaml
+
 # =============================================================================
 # Webserver configuration (HTTPS)
 # =============================================================================
@@ -59,12 +64,20 @@ webserver:
 #
 # name: relay name used in the API (/relays/{name})
 # gpio: BCM number 2..27, each gpio at most once
-# A SIGHUP reload keeps the state of every relay whose gpio stays configured.
+# startState: state after the process starts (boot, crash, systemctl restart):
+#   off  (default) switched off
+#   on   switched on
+#   last the state before, from stateFile; off if it has none (first start,
+#        missing or damaged file)
+# A SIGHUP reload keeps the state of every relay whose gpio stays configured;
+# startState applies only to relays that are added by the reload.
+# A stop (SIGTERM/SIGINT) switches all relays off.
 # =============================================================================
 relay:
   relay1:
     description: "gpio 4 available for Raspberry Pi 4 Channel Relay HAT and Raspberry Pi Zero Relay HAT"
     gpio: 4
+    startState: off
   relay2:
     description: "gpio 17 available for Raspberry Pi 4 Channel Relay HAT and Raspberry Pi Zero Relay HAT"
     gpio: 17

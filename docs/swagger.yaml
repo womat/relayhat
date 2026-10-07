@@ -41,6 +41,11 @@ definitions:
         description: Application uptime in seconds
         type: number
     type: object
+  web.ApiError:
+    properties:
+      error:
+        type: string
+    type: object
 info:
   contact: {}
 paths:
@@ -58,7 +63,7 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            type: string
+            $ref: '#/definitions/web.ApiError'
       security:
       - ApiKeyAuth: []
       summary: Get health data
@@ -80,11 +85,11 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            type: string
+            $ref: '#/definitions/web.ApiError'
         "500":
           description: Internal server error
           schema:
-            type: string
+            $ref: '#/definitions/web.ApiError'
       security:
       - ApiKeyAuth: []
       summary: List all relays
@@ -109,15 +114,15 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            type: string
+            $ref: '#/definitions/web.ApiError'
         "404":
           description: Relay not found
           schema:
-            type: string
+            $ref: '#/definitions/web.ApiError'
         "500":
           description: Internal server error
           schema:
-            type: string
+            $ref: '#/definitions/web.ApiError'
       security:
       - ApiKeyAuth: []
       summary: Get relay state
@@ -145,21 +150,21 @@ paths:
           schema:
             $ref: '#/definitions/app.HTTPResponse'
         "400":
-          description: Bad request
+          description: Invalid state
           schema:
-            type: string
+            $ref: '#/definitions/web.ApiError'
         "401":
           description: Unauthorized
           schema:
-            type: string
+            $ref: '#/definitions/web.ApiError'
         "404":
           description: Relay not found
           schema:
-            type: string
+            $ref: '#/definitions/web.ApiError'
         "500":
           description: Internal server error
           schema:
-            type: string
+            $ref: '#/definitions/web.ApiError'
       security:
       - ApiKeyAuth: []
       summary: Set relay state

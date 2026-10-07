@@ -99,16 +99,28 @@ func TestValidate(t *testing.T) {
 		t.Fatalf("valid config: %v", err)
 	}
 
+	withStates := validConfig()
+	withStates.Relays["c"] = RelayConfig{GPIO: 3, StartState: StartOn}
+	withStates.Relays["d"] = RelayConfig{GPIO: 4, StartState: StartLast}
+	if err := withStates.Validate(); err != nil {
+		t.Fatalf("valid start states: %v", err)
+	}
+
 	invalid := map[string]func(*Config){
-		"missing apiKey":    func(c *Config) { c.Webserver.ApiKey = "" },
-		"unknown env":       func(c *Config) { c.Env = "staging" },
-		"unknown log level": func(c *Config) { c.LogLevel = "trace" },
-		"port out of range": func(c *Config) { c.Webserver.ListenPort = 70000 },
-		"empty relay name":  func(c *Config) { c.Relays[""] = RelayConfig{GPIO: 5} },
-		"gpio below range":  func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 1} },
-		"gpio above range":  func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 28} },
-		"missing gpio":      func(c *Config) { c.Relays["a"] = RelayConfig{} },
-		"duplicate gpio":    func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 17}; c.Relays["b"] = RelayConfig{GPIO: 17} },
+		"missing apiKey":     func(c *Config) { c.Webserver.ApiKey = "" },
+		"unknown env":        func(c *Config) { c.Env = "staging" },
+		"unknown log level":  func(c *Config) { c.LogLevel = "trace" },
+		"port out of range":  func(c *Config) { c.Webserver.ListenPort = 70000 },
+		"empty relay name":   func(c *Config) { c.Relays[""] = RelayConfig{GPIO: 5} },
+		"gpio below range":   func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 1} },
+		"gpio above range":   func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 28} },
+		"missing gpio":       func(c *Config) { c.Relays["a"] = RelayConfig{} },
+		"duplicate gpio":     func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 17}; c.Relays["b"] = RelayConfig{GPIO: 17} },
+		"unknown startState": func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 2, StartState: "toggle"} },
+		"last without stateFile": func(c *Config) {
+			c.StateFile = ""
+			c.Relays["a"] = RelayConfig{GPIO: 2, StartState: StartLast}
+		},
 	}
 	for name, mutate := range invalid {
 		t.Run(name, func(t *testing.T) {

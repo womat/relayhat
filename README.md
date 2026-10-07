@@ -47,7 +47,9 @@ protects requests with an API key.
 | GET    | `/relays/{name}`         | API Key | Get relay state          |
 | PATCH  | `/relays/{name}/{state}` | API Key | Set relay (`on` / `off`) |
 
-Authentication via the `X-API-Key` header.
+Authentication via the `X-API-Key` header. Errors are returned as `{"error": "..."}` with the HTTP status
+(401, 404, 400 for an invalid state); a 500 carries only `internal server error`, the cause is in the log.
+Every switch is logged with relay, GPIO, old and new state and the client address.
 
 ### Examples
 
@@ -104,6 +106,9 @@ Default location: `/opt/relayhat/etc/config.yaml`
   every relay uses a GPIO between 2 and 27, and no GPIO is used twice.
 - A weak `apiKey` (the example value or shorter than 16 characters) does not stop the service but is logged as a
   warning.
+- `startState` per relay sets the state after the process starts: `off` (default), `on`, or `last` – the state
+  before, read from `stateFile`. A missing, empty or damaged state file is not an error; the relays with `last` then
+  start off and the log says why.
 
 ```yaml
 # =============================================================================
@@ -127,6 +132,11 @@ logDestination: stdout
 # dev falls back to the embedded self-signed certificate when certFile is
 # missing; prod refuses to start without certFile.
 env: dev
+
+# stateFile keeps the last state of every relay for startState: last. It is
+# written after every switch and once on start; the directory must exist and be
+# writable. Only used when a relay has startState: last.
+stateFile: /opt/relayhat/data/state.yaml
 
 # =============================================================================
 # Webserver configuration (HTTPS)
@@ -167,12 +177,20 @@ webserver:
 #
 # name: relay name used in the API (/relays/{name})
 # gpio: BCM number 2..27, each gpio at most once
-# A SIGHUP reload keeps the state of every relay whose gpio stays configured.
+# startState: state after the process starts (boot, crash, systemctl restart):
+#   off  (default) switched off
+#   on   switched on
+#   last the state before, from stateFile; off if it has none (first start,
+#        missing or damaged file)
+# A SIGHUP reload keeps the state of every relay whose gpio stays configured;
+# startState applies only to relays that are added by the reload.
+# A stop (SIGTERM/SIGINT) switches all relays off.
 # =============================================================================
 relay:
   relay1:
     description: "gpio 4 available for Raspberry Pi 4 Channel Relay HAT and Raspberry Pi Zero Relay HAT"
     gpio: 4
+    startState: off
   relay2:
     description: "gpio 17 available for Raspberry Pi 4 Channel Relay HAT and Raspberry Pi Zero Relay HAT"
     gpio: 17
@@ -241,7 +259,7 @@ tar xzf relayhat_${VERSION}_linux_$ARCH.tar.gz
 sudo groupadd -r -f relayhat
 sudo useradd -r -s /usr/sbin/nologin -g relayhat relayhat
 sudo usermod -aG gpio relayhat
-sudo mkdir -p /opt/relayhat/{bin,etc}
+sudo mkdir -p /opt/relayhat/{bin,etc,data}
 
 sudo install -m 755 relayhat /opt/relayhat/bin/
 sudo install -m 640 config/config.yaml /opt/relayhat/etc/
@@ -308,7 +326,13 @@ kill -HUP $(pidof relayhat)
 
 The config file is validated first; if it is broken, the reload is refused, logged, and the service keeps running
 unchanged. Relays whose GPIO is still configured keep their state across the reload (also when they are renamed),
-removed relays are switched off, new ones start switched off. A stop (`SIGTERM`/`SIGINT`) switches all relays off.
+removed relays are switched off, new ones start in their `startState`.
+
+| Event                                       | Relay state afterwards                          |
+|---------------------------------------------|-------------------------------------------------|
+| `SIGHUP` reload                             | unchanged                                       |
+| process start (boot, crash, `systemctl restart`) | `startState`: `off`, `on` or `last`        |
+| stop (`SIGTERM`/`SIGINT`, `systemctl stop`) | off                                             |
 
 ---
 

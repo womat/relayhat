@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	"github.com/womat/golib/gpio"
 	"github.com/womat/golib/gpio/rpiemu"
+	"github.com/womat/golib/web"
 	"github.com/womat/relayhat/pkg/relay"
 )
 
@@ -26,13 +28,25 @@ func (e emuRelays) open(n int) (*relay.Relay, error) {
 	return relay.NewWithPin(p)
 }
 
-// newTestApp returns an initialized App with the given relays on emulated pins.
-func newTestApp(t *testing.T, relays map[string]RelayConfig, inherited map[int]*relay.Relay) (*App, emuRelays) {
+// testConfig returns a config with the given relays and a state file in a temporary directory.
+func testConfig(t *testing.T, relays map[string]RelayConfig) *Config {
 	t.Helper()
 	cfg := NewConfig()
 	cfg.Webserver.ApiKey = testKey
+	cfg.StateFile = filepath.Join(t.TempDir(), "state.yaml")
 	cfg.Relays = relays
+	return cfg
+}
 
+// newTestApp returns an initialized App with the given relays on emulated pins.
+func newTestApp(t *testing.T, relays map[string]RelayConfig, inherited map[int]*relay.Relay) (*App, emuRelays) {
+	t.Helper()
+	return startTestApp(t, testConfig(t, relays), inherited)
+}
+
+// startTestApp returns an initialized App for cfg with its relays on emulated pins.
+func startTestApp(t *testing.T, cfg *Config, inherited map[int]*relay.Relay) (*App, emuRelays) {
+	t.Helper()
 	pins := emuRelays{}
 	app := New(cfg, nil, nil, inherited)
 	app.openRelay = pins.open
@@ -119,16 +133,34 @@ func TestRelaySwitching(t *testing.T) {
 }
 
 func TestRelayErrors(t *testing.T) {
-	app, _ := newTestApp(t, map[string]RelayConfig{"r1": {GPIO: 4}}, nil)
+	app, pins := newTestApp(t, map[string]RelayConfig{"r1": {GPIO: 4}}, nil)
 
-	if rec := serve(app, http.MethodGet, "/relays/nope", testKey); rec.Code != http.StatusNotFound {
-		t.Errorf("GET unknown relay = %d, want 404", rec.Code)
+	for _, tc := range []struct {
+		method, path string
+		code         int
+		msg          string
+	}{
+		{http.MethodGet, "/relays/nope", http.StatusNotFound, errRelayNotFound.Error()},
+		{http.MethodPatch, "/relays/nope/on", http.StatusNotFound, errRelayNotFound.Error()},
+		{http.MethodPatch, "/relays/r1/toggle", http.StatusBadRequest, errInvalidState.Error()},
+	} {
+		rec := serve(app, tc.method, tc.path, testKey)
+		if rec.Code != tc.code {
+			t.Errorf("%s %s = %d, want %d", tc.method, tc.path, rec.Code, tc.code)
+		}
+		if got := decode[web.ApiError](t, rec); got.Error != tc.msg {
+			t.Errorf("%s %s error = %q, want %q", tc.method, tc.path, got.Error, tc.msg)
+		}
 	}
-	if rec := serve(app, http.MethodPatch, "/relays/nope/on", testKey); rec.Code != http.StatusNotFound {
-		t.Errorf("PATCH unknown relay = %d, want 404", rec.Code)
+
+	// A closed pin is an input, so switching fails: the client gets a generic 500 only.
+	_ = pins[4].Close()
+	rec := serve(app, http.MethodPatch, "/relays/r1/on", testKey)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("PATCH on a failing pin = %d, want 500", rec.Code)
 	}
-	if rec := serve(app, http.MethodPatch, "/relays/r1/toggle", testKey); rec.Code != http.StatusBadRequest {
-		t.Errorf("PATCH invalid state = %d, want 400", rec.Code)
+	if got := decode[web.ApiError](t, rec); got.Error != web.ErrInternal.Error() {
+		t.Errorf("500 error = %q, want %q without internals", got.Error, web.ErrInternal.Error())
 	}
 }
 

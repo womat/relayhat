@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/womat/golib/gpio"
@@ -91,4 +92,89 @@ func TestInitFailureClosesEverything(t *testing.T) {
 	// The mutex must be free again.
 	second.mu.Lock()
 	second.mu.Unlock()
+}
+
+func TestStartStates(t *testing.T) {
+	cfg := testConfig(t, map[string]RelayConfig{
+		"default":  {GPIO: 4},
+		"off":      {GPIO: 17, StartState: StartOff},
+		"on":       {GPIO: 22, StartState: StartOn},
+		"lastOn":   {GPIO: 27, StartState: StartLast},
+		"lastOff":  {GPIO: 5, StartState: StartLast},
+		"lastNone": {GPIO: 6, StartState: StartLast},
+	})
+	if err := saveRelayStates(cfg.StateFile, map[string]relay.State{"lastOn": relay.On, "lastOff": relay.Off}); err != nil {
+		t.Fatal(err)
+	}
+
+	app, _ := startTestApp(t, cfg, nil)
+
+	for name, want := range map[string]string{
+		"default": "off", "off": "off", "on": "on", "lastOn": "on", "lastOff": "off", "lastNone": "off",
+	} {
+		if got := decode[HTTPResponse](t, serve(app, "GET", "/relays/"+name, testKey)); got.State != want {
+			t.Errorf("relay %s starts %q, want %q", name, got.State, want)
+		}
+	}
+}
+
+func TestFirstStartCreatesStateFile(t *testing.T) {
+	cfg := testConfig(t, map[string]RelayConfig{
+		"last": {GPIO: 4, StartState: StartLast},
+		"on":   {GPIO: 17, StartState: StartOn},
+	})
+
+	app, _ := startTestApp(t, cfg, nil)
+
+	if got := decode[HTTPResponse](t, serve(app, "GET", "/relays/last", testKey)); got.State != "off" {
+		t.Errorf("without a state file relay starts %q, want off", got.State)
+	}
+	got := readRelayStates(cfg.StateFile)
+	if got["last"] != relay.Off || got["on"] != relay.On {
+		t.Errorf("state file after the first start = %v, want last: off, on: on", got)
+	}
+}
+
+func TestUnwritableStateFileDoesNotStopInit(t *testing.T) {
+	cfg := testConfig(t, map[string]RelayConfig{"last": {GPIO: 4, StartState: StartLast}})
+	cfg.StateFile = filepath.Join(t.TempDir(), "missing", "state.yaml")
+
+	app, _ := startTestApp(t, cfg, nil) // fails the test if Init returns an error
+
+	if rec := serve(app, "PATCH", "/relays/last/on", testKey); rec.Code != 200 {
+		t.Errorf("PATCH with an unwritable state file = %d, want 200", rec.Code)
+	}
+}
+
+func TestSwitchSavesStateAndStopKeepsIt(t *testing.T) {
+	cfg := testConfig(t, map[string]RelayConfig{"pump": {GPIO: 4, StartState: StartLast}})
+	app, _ := startTestApp(t, cfg, nil)
+
+	serve(app, "PATCH", "/relays/pump/on", testKey)
+	if got := readRelayStates(cfg.StateFile); got["pump"] != relay.On {
+		t.Fatalf("state file after PATCH on = %v, want pump: on", got)
+	}
+
+	go app.shutdownProcedure(ModeStop)
+	<-app.Shutdown()
+	if got := readRelayStates(cfg.StateFile); got["pump"] != relay.On {
+		t.Errorf("stop overwrote the state file: %v, want pump: on", got)
+	}
+
+	// The next start restores it.
+	next, _ := startTestApp(t, cfg, nil)
+	if got := decode[HTTPResponse](t, serve(next, "GET", "/relays/pump", testKey)); got.State != "on" {
+		t.Errorf("after restart pump is %q, want on", got.State)
+	}
+}
+
+func TestHandoverIgnoresStartState(t *testing.T) {
+	first, _ := newTestApp(t, map[string]RelayConfig{"r": {GPIO: 4}}, nil)
+	serve(first, "PATCH", "/relays/r/on", testKey)
+	handover := restart(t, first)
+
+	second, _ := newTestApp(t, map[string]RelayConfig{"r": {GPIO: 4, StartState: StartOff}}, handover)
+	if got := decode[HTTPResponse](t, serve(second, "GET", "/relays/r", testKey)); got.State != "on" {
+		t.Errorf("taken over relay is %q, want it to stay on despite startState off", got.State)
+	}
 }

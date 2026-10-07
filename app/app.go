@@ -67,6 +67,8 @@ type App struct {
 
 	mu     sync.RWMutex // protects app.relays
 	relays map[string]Relay
+
+	stateMu sync.Mutex // serializes writes of the state file
 }
 
 // Relay combines the runtime relay instance with its config metadata.
@@ -138,8 +140,8 @@ func (app *App) Run() (*App, error) {
 	return app, nil
 }
 
-// Init opens the configured relays, or takes them over from the previous App, and
-// initializes the HTTP routes.
+// Init opens the configured relays, or takes them over from the previous App, switches the
+// opened ones to their start state and initializes the HTTP routes.
 func (app *App) Init() (err error) {
 	relays := make(map[string]Relay, len(app.config.Relays))
 
@@ -157,6 +159,9 @@ func (app *App) Init() (err error) {
 		}
 		app.inherited = nil
 	}()
+
+	// Relays opened here, as opposed to taken over; only they get their start state.
+	var opened []string
 
 	// Sorted, so the log shows the relays in the same order on every start.
 	for _, name := range slices.Sorted(maps.Keys(app.config.Relays)) {
@@ -176,16 +181,83 @@ func (app *App) Init() (err error) {
 			return fmt.Errorf("failed to register relay %q: %w", name, err)
 		}
 		relays[name] = Relay{Relay: r, Description: cfg.Description}
+		opened = append(opened, name)
+	}
+
+	if err = app.applyStartStates(relays, opened); err != nil {
+		return err
 	}
 
 	app.mu.Lock()
 	app.relays = relays
 	app.mu.Unlock()
 
+	// Write the state file once, so it exists from the first start on and a missing directory
+	// or missing write permission shows up now instead of at the first switch.
+	app.saveStates()
+
 	// initRoutes should always be called at the end
 	slog.Debug("Initializing API routes")
 	app.SetupRoutes()
 	return nil
+}
+
+// applyStartStates switches the opened relays to their configured start state. They come
+// from openRelay switched off, so only "on" and a stored "on" for "last" need an action.
+func (app *App) applyStartStates(relays map[string]Relay, opened []string) error {
+	var stored map[string]relay.State
+	if app.config.usesLastState() {
+		stored = readRelayStates(app.config.StateFile)
+	}
+
+	for _, name := range opened {
+		mode := app.config.Relays[name].startMode()
+
+		state := relay.Off
+		switch mode {
+		case StartOn:
+			state = relay.On
+		case StartLast:
+			if s, ok := stored[name]; ok {
+				state = s
+			}
+		}
+
+		if state == relay.On {
+			if err := relays[name].TurnOn(); err != nil {
+				return fmt.Errorf("failed to switch relay %q to its start state: %w", name, err)
+			}
+		}
+		slog.Info("Relay start state applied", "name", name, "startState", mode, "state", state)
+	}
+	return nil
+}
+
+// saveStates writes the current state of every relay to the state file. It does nothing
+// unless a relay uses startState last, and a failure is logged only: the relay is switched
+// anyway, just its state will not survive a restart.
+func (app *App) saveStates() {
+	if !app.config.usesLastState() {
+		return
+	}
+
+	app.stateMu.Lock()
+	defer app.stateMu.Unlock()
+
+	// Read the states under stateMu, so the last write always holds the latest states, even
+	// when two switches save at the same time.
+	app.mu.RLock()
+	states := make(map[string]relay.State, len(app.relays))
+	for name, r := range app.relays {
+		if s, err := r.GetState(); err == nil {
+			states[name] = s
+		}
+	}
+	app.mu.RUnlock()
+
+	if err := saveRelayStates(app.config.StateFile, states); err != nil {
+		slog.Error("Failed to save relay states, startState last will not restore them", "file", app.config.StateFile, "error", err)
+	}
 }
 
 // mergeRelays adds the relays of named to byGPIO and returns it.
