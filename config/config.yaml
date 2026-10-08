@@ -75,7 +75,7 @@ webserver:
 # A stop (SIGTERM/SIGINT) switches all relays off.
 # minSwitchInterval: after a switch the relay refuses to be switched again for
 #   this long, by any client including the web page (HTTP 429), e.g. 5s or 10m;
-#   0 or missing disables it. The start counts as a switch, start states are
+#   0s or missing disables it. The start counts as a switch, start states are
 #   never refused, and a request for the state the relay is already in is no
 #   switch.
 #

@@ -276,6 +276,7 @@ Default location: `/opt/relayhat/etc/config.yaml`
 - `${VAR}` is replaced with the environment variable `VAR`, e.g. `apiKey: ${RELAYHAT_API_KEY}`. Only
   this form is expanded; a bare `$` stays as it is, so keys containing `$` are safe.
 - Unknown keys are an error, so a typo cannot silently fall back to a default.
+- Durations need a unit (`5s`, `10m`, `0s`); a bare number, `0` included, is rejected.
 - The configuration is validated on start and before every reload: `env` is `dev` or `prod`, `apiKey`
   is set, `certFile` and `keyFile` exist with `env: prod`, every relay uses a GPIO between 2 and 27,
   no GPIO is used twice, and no relay name contains `/` or is `.` or `..` (the name is a URL path
@@ -373,7 +374,7 @@ webserver:
 # A stop (SIGTERM/SIGINT) switches all relays off.
 # minSwitchInterval: after a switch the relay refuses to be switched again for
 #   this long, by any client including the web page (HTTP 429), e.g. 5s or 10m;
-#   0 or missing disables it. The start counts as a switch, start states are
+#   0s or missing disables it. The start counts as a switch, start states are
 #   never refused, and a request for the state the relay is already in is no
 #   switch.
 #
