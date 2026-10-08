@@ -77,7 +77,9 @@ func TestStopClosesRelays(t *testing.T) {
 	}
 }
 
-func TestInitFailureClosesEverything(t *testing.T) {
+// A failed Init hands every relay back instead of switching it off, so the caller can start the
+// previous configuration with them; only when it exits are they closed.
+func TestInitFailureHandsEverythingBack(t *testing.T) {
 	first, pins := newTestApp(t, map[string]RelayConfig{"old": {GPIO: 4}}, nil)
 	serve(first, "PATCH", "/relays/old/on", testKey)
 	handover := restart(t, first)
@@ -91,12 +93,38 @@ func TestInitFailureClosesEverything(t *testing.T) {
 	if err := second.Init(); err == nil {
 		t.Fatal("expected Init to fail")
 	}
-	if l, _ := pins[4].Value(); l != gpio.Low {
-		t.Error("the taken over relay stayed on after Init failed")
+	if l, _ := pins[4].Value(); l != gpio.High {
+		t.Error("the taken over relay was switched off after Init failed")
+	}
+	back := second.Handover()
+	if _, ok := back[4]; !ok || len(back) != 1 {
+		t.Fatalf("handover after the failed Init = %v, want gpio 4", back)
+	}
+
+	// The previous configuration takes the relay over again, still switched on.
+	third, _ := newTestApp(t, map[string]RelayConfig{"old": {GPIO: 4}}, back)
+	if got := decode[HTTPResponse](t, serve(third, "GET", "/relays/old", testKey)); got.State != "on" {
+		t.Errorf("relay after falling back = %q, want on", got.State)
 	}
 	// The mutex must be free again.
 	second.mu.Lock()
 	second.mu.Unlock()
+}
+
+// After a shutdown has begun, a request still running must neither switch a relay nor start a
+// host name lookup the shutdown no longer waits for.
+func TestNoSwitchAfterShutdownStarted(t *testing.T) {
+	app, pins := newTestApp(t, map[string]RelayConfig{"r1": {GPIO: 4}}, nil)
+	app.stop()
+
+	if rec := serve(app, "PATCH", "/relays/r1/on", testKey); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("PATCH after stop = %d, want 503", rec.Code)
+	}
+	if l, _ := pins[4].Value(); l != gpio.Low {
+		t.Error("a request after stop switched the relay")
+	}
+	app.resolveClient(app.relays["r1"], time.Now(), "127.0.0.1") // must not add to app.wg
+	app.wg.Wait()
 }
 
 func TestStartStates(t *testing.T) {

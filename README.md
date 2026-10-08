@@ -277,7 +277,9 @@ Default location: `/opt/relayhat/etc/config.yaml`
   this form is expanded; a bare `$` stays as it is, so keys containing `$` are safe.
 - Unknown keys are an error, so a typo cannot silently fall back to a default.
 - The configuration is validated on start and before every reload: `env` is `dev` or `prod`, `apiKey`
-  is set, every relay uses a GPIO between 2 and 27, and no GPIO is used twice.
+  is set, `certFile` and `keyFile` exist with `env: prod`, every relay uses a GPIO between 2 and 27,
+  no GPIO is used twice, and no relay name contains `/` or is `.` or `..` (the name is a URL path
+  segment).
 - A weak `apiKey` (the example value or shorter than 16 characters) does not stop the service but is
   logged as a warning.
 - `startState` per relay sets the state after the process starts: `off` (default), `on`, or `last` –
@@ -422,6 +424,11 @@ keeps running unchanged. Relays whose GPIO is still configured keep their state 
 (also when they are renamed) — the GPIO line is handed over, not reopened, so the relay does not
 flicker. Removed relays are switched off, new ones start in their `startState`. The last switch of a
 relay is kept as well.
+
+Some problems only show when the service starts with the new settings, e.g. a port or GPIO line in
+use. Then `Start with the new configuration failed, continuing with the previous one` is logged and
+the service starts again with the settings it ran with before; the relays are handed over to it and
+keep their state. A request that arrives while a reload is in progress gets HTTP 503.
 
 | Event                                            | Relay state afterwards              |
 |--------------------------------------------------|-------------------------------------|

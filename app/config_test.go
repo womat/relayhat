@@ -120,6 +120,13 @@ func TestValidate(t *testing.T) {
 		"unknown log level":          func(c *Config) { c.LogLevel = "trace" },
 		"port out of range":          func(c *Config) { c.Webserver.ListenPort = 70000 },
 		"empty relay name":           func(c *Config) { c.Relays[""] = RelayConfig{GPIO: 5} },
+		"relay name with slash":      func(c *Config) { c.Relays["a/b"] = RelayConfig{GPIO: 5} },
+		"relay name dot dot":         func(c *Config) { c.Relays[".."] = RelayConfig{GPIO: 5} },
+		"prod without certFile": func(c *Config) {
+			c.Env = ProdEnv
+			c.Webserver.CertFile = "/nonexistent/cert.pem"
+			c.Webserver.KeyFile = "/nonexistent/key.pem"
+		},
 		"gpio below range":           func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 1} },
 		"gpio above range":           func(c *Config) { c.Relays["a"] = RelayConfig{GPIO: 28} },
 		"missing gpio":               func(c *Config) { c.Relays["a"] = RelayConfig{} },

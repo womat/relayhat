@@ -224,6 +224,10 @@ paths:
           description: Internal server error
           schema:
             $ref: '#/definitions/web.ApiError'
+        "503":
+          description: Shutting down or reloading, try again
+          schema:
+            $ref: '#/definitions/web.ApiError'
       security:
       - ApiKeyAuth: []
       summary: Set relay state

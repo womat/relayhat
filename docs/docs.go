@@ -205,6 +205,12 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/web.ApiError"
                         }
+                    },
+                    "503": {
+                        "description": "Shutting down or reloading, try again",
+                        "schema": {
+                            "$ref": "#/definitions/web.ApiError"
+                        }
                     }
                 }
             }

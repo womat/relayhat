@@ -216,6 +216,9 @@ func New(config *Config, signals <-chan os.Signal, checkReload func() error, inh
 
 // Run starts the application.
 func (app *App) Run() (*App, error) {
+	// A failed Run hands every relay it holds over (see Handover) instead of switching it
+	// off: the caller either starts the previous configuration with them or exits, which
+	// closes them.
 	if err := app.Init(); err != nil {
 		return app, err
 	}
@@ -226,11 +229,11 @@ func (app *App) Run() (*App, error) {
 	slog.Info("Starting web server", "url", app.web.Addr)
 	if err := app.StartWebServer(); err != nil {
 		slog.Error("Web server failed to start", "url", app.web.Addr, "error", err)
-		// Stop the signal handler and switch the relays off, the caller exits.
-		app.cancelFunc()
-		if cerr := app.Cleanup(); cerr != nil {
-			slog.Error("Cleanup failed", "error", cerr)
-		}
+		app.stop()
+		app.mu.Lock()
+		app.handover = mergeRelays(nil, app.relays)
+		app.relays = make(map[string]*Relay)
+		app.mu.Unlock()
 		return app, err
 	}
 
@@ -248,10 +251,13 @@ func (app *App) Init() (err error) {
 	relays := make(map[string]*Relay, len(app.config.Relays))
 
 	defer func() {
-		// Close what is not used: inherited relays whose GPIO is no longer configured and,
-		// if Init fails, every relay it has already opened or taken over.
+		// If Init fails, every relay it has opened or taken over is handed over again, so a
+		// failed reload does not switch them. Otherwise the inherited relays whose GPIO is no
+		// longer configured are closed.
 		if err != nil {
-			app.inherited = mergeRelays(app.inherited, relays)
+			app.handover = mergeRelays(app.inherited, relays)
+			app.inherited = nil
+			return
 		}
 		for gpio, r := range app.inherited {
 			slog.Info("Closing relay that is no longer configured", "gpio", gpio)
@@ -461,10 +467,7 @@ func (app *App) HandleOSSignals() {
 func (app *App) shutdownProcedure(mode int) {
 	slog.Info("Initiating shutdown", "mode", mode)
 
-	// cancel the application context to stop all running goroutines
-	app.cancelFunc()
-	// Wait for the web server, so no request switches a relay that is handed over or closed.
-	app.wg.Wait()
+	app.stop()
 
 	if mode == ModeRestart {
 		app.mu.Lock()
@@ -488,6 +491,18 @@ func (app *App) shutdownProcedure(mode int) {
 		app.shutdown <- struct{}{}
 		close(app.shutdown)
 	}
+}
+
+// stop cancels the App's context and waits for the web server and the host name lookups, so
+// no request switches a relay that is handed over or closed afterwards.
+//
+// The context is cancelled under app.mu, which resolveClient holds while it checks the
+// context and adds to app.wg; so no lookup can be added once Wait has started.
+func (app *App) stop() {
+	app.mu.Lock()
+	app.cancelFunc()
+	app.mu.Unlock()
+	app.wg.Wait()
 }
 
 // Cleanup closes the relays the App still owns, which switches them off. Relays handed

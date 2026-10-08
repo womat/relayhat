@@ -180,6 +180,16 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid port: %d", c.Webserver.ListenPort)
 	}
 
+	// prod does not fall back to the embedded certificate. Checking here refuses a reload
+	// with a missing file before the running App is torn down.
+	if c.Env == ProdEnv {
+		for key, file := range map[string]string{"certFile": c.Webserver.CertFile, "keyFile": c.Webserver.KeyFile} {
+			if _, err := os.Stat(file); err != nil {
+				return fmt.Errorf("webserver.%s is required with env %s: %w", key, ProdEnv, err)
+			}
+		}
+	}
+
 	// Visit the relays in a fixed order, so the reported duplicate does not depend on map order.
 	names := make([]string, 0, len(c.Relays))
 	for name := range c.Relays {
@@ -192,6 +202,10 @@ func (c *Config) Validate() error {
 		relay := c.Relays[name]
 		if name == "" {
 			return errors.New("relay name must not be empty")
+		}
+		// The name is a path segment of /relays/{name}; these could never be addressed.
+		if strings.Contains(name, "/") || name == "." || name == ".." {
+			return fmt.Errorf("relay %q: name must not contain \"/\" or be \".\" or \"..\"", name)
 		}
 		if relay.GPIO < minGPIO || relay.GPIO > maxGPIO {
 			return fmt.Errorf("relay %q: gpio must be between %d and %d, got %d", name, minGPIO, maxGPIO, relay.GPIO)

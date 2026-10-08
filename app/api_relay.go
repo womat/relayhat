@@ -21,6 +21,7 @@ const lookupTimeout = 2 * time.Second
 var (
 	errRelayNotFound = errors.New("relay not found")
 	errInvalidState  = errors.New("invalid state: must be \"on\" or \"off\"")
+	errShuttingDown  = errors.New("shutting down, try again")
 )
 
 // HTTPResponse is the JSON representation of a relay.
@@ -137,6 +138,7 @@ func (app *App) HandleRelayGetAll() http.Handler {
 //	@Failure		404		{object}	web.ApiError	"Relay not found"
 //	@Failure		429		{object}	web.ApiError	"Switching locked by minSwitchInterval, see the Retry-After header"
 //	@Failure		500		{object}	web.ApiError	"Internal server error"
+//	@Failure		503		{object}	web.ApiError	"Shutting down or reloading, try again"
 //	@Router			/relays/{name}/{state} [patch]
 func (app *App) HandleRelaySet() http.Handler {
 	return http.HandlerFunc(
@@ -213,14 +215,6 @@ func (app *App) relayGet(name string) (HTTPResponse, int, error) {
 // succeeds, but neither the last switch nor the switch lock change. Within minSwitchInterval
 // of the last switch the request fails with 429.
 func (app *App) relaySet(name, state, client string) (HTTPResponse, int, error) {
-	app.mu.RLock()
-	r, ok := app.relays[name]
-	app.mu.RUnlock()
-
-	if !ok {
-		return HTTPResponse{}, http.StatusNotFound, errRelayNotFound
-	}
-
 	var want relay.State
 	switch state {
 	case relay.On.String():
@@ -233,7 +227,21 @@ func (app *App) relaySet(name, state, client string) (HTTPResponse, int, error) 
 
 	ip := clientIP(client)
 	at := app.now()
+
+	// Look up and switch under app.mu, which a shutdown takes before it hands the relays over
+	// or closes them, so a request still running then cannot switch a relay it no longer owns.
+	app.mu.RLock()
+	if app.ctx.Err() != nil {
+		app.mu.RUnlock()
+		return HTTPResponse{}, http.StatusServiceUnavailable, errShuttingDown
+	}
+	r, ok := app.relays[name]
+	if !ok {
+		app.mu.RUnlock()
+		return HTTPResponse{}, http.StatusNotFound, errRelayNotFound
+	}
 	from, switched, err := r.switchTo(want, Change{Time: at, Source: SourceAPI, Client: ip})
+	app.mu.RUnlock()
 	var locked errSwitchLocked
 	switch {
 	case errors.As(err, &locked):
@@ -257,6 +265,12 @@ func (app *App) relaySet(name, state, client string) (HTTPResponse, int, error) 
 // the App's context and tracked in app.wg, so a shutdown cancels and waits for it.
 func (app *App) resolveClient(r *Relay, at time.Time, ip string) {
 	if ip == "" {
+		return
+	}
+	// Checked and added under app.mu, see App.stop.
+	app.mu.RLock()
+	defer app.mu.RUnlock()
+	if app.ctx.Err() != nil {
 		return
 	}
 	app.wg.Add(1)
