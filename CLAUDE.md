@@ -82,4 +82,4 @@ Layering is strict: `cmd` → `app` → `pkg/*`. Lower layers never import upwar
 - Logging is `log/slog` with key/value pairs throughout; `slog.SetDefault` is set once per lifecycle in `cmd`. Do not use `fmt.Print` outside pre-logger startup and `--about`/`--version`/`--help`.
 - Doc comments: every package and exported symbol is documented, in English, and Swagger annotations live directly on the handlers.
 - Config field docs live in `README.md` and `config/config.yaml` — update both when adding a config key (the README embeds a copy of the example config). `cmd/README.md` is the short `--help` text.
-- Commit subjects use the prefixes `feat()`, `fix()`, `docu()`, `chore()`, `refactor()`. The release changelog groups on them (`.goreleaser.yaml`).
+- Commit subjects follow Conventional Commits, `type(scope): description` with an optional scope (`fix: default port 8443`, `feat(ui): …`), types `feat`, `fix`, `docu`, `chore`, `refactor`. The release changelog groups on them (`.goreleaser.yaml`).
