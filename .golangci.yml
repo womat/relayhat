@@ -1,0 +1,11 @@
+# golangci-lint configuration for github.com/womat/relayhat, run by make lint
+# and CI. The default linter set is kept. Exclusions are decisions, not
+# convenience - each one has to say why, as in golib. There are none so far.
+#
+# Run it for the target, not the host: every linter needs full type
+# information, and the GPIO backend (go-gpiocdev via golib/gpio/rpi) only
+# compiles for Linux - on macOS a bare run stops at a typecheck error and sees
+# nothing else. make lint sets GOOS=linux GOARCH=arm GOARM=6, CI runs it per
+# matrix target, both also with -tags swagger, which a plain run never sees.
+
+version: "2"
