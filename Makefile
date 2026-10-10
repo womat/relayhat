@@ -66,7 +66,7 @@ LDFLAGS := -X 'main.buildDate=$(BUILD_DATE)' \
            -X 'main.buildCommit=$(BUILD_COMMIT)' \
            -X 'github.com/womat/relayhat/app.VERSION=$(VERSION)'
 
-.PHONY: all test release deploy_release deploy deploy_dev clean help ensure_dev_certs
+.PHONY: all test lint release deploy_release deploy deploy_dev clean help ensure_dev_certs
 
 all: help
 
@@ -82,6 +82,23 @@ clean: ## Remove build related file
 #   docker run --rm -v "$$PWD":/src -w /src golang:1.27 make test
 test: ensure_dev_certs ## run all tests with the race detector (Linux only, see comment for macOS)
 	GOOS=linux go test -race ./...
+
+# The linters are built for the host into bin/tools (gitignored) but analyse
+# linux/armv6, like CI: the GPIO backend only compiles for Linux, so a host run
+# would stop at a typecheck error on macOS. Both tools are pinned, like in CI;
+# dependabot does not see these versions - raise them by hand, here and there.
+LINT_TOOLS := $(CURDIR)/bin/tools
+GOLANGCI_LINT_VERSION := v2.14.0
+GOVULNCHECK_VERSION := v1.8.0
+
+lint: ensure_dev_certs ## go vet, golangci-lint and govulncheck for linux/armv6, also with -tags swagger
+	GOOS= GOARCH= GOARM= GOBIN=$(LINT_TOOLS) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	GOOS= GOARCH= GOARM= GOBIN=$(LINT_TOOLS) go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+	$(GOENV_arm6) go vet ./...
+	$(GOENV_arm6) go vet -tags swagger ./...
+	$(GOENV_arm6) $(LINT_TOOLS)/golangci-lint run ./...
+	$(GOENV_arm6) $(LINT_TOOLS)/golangci-lint run --build-tags swagger ./...
+	$(GOENV_arm6) $(LINT_TOOLS)/govulncheck ./...
 
 ensure_dev_certs:
 	@mkdir -p $(DEV_CERT_DIR)

@@ -489,7 +489,8 @@ the major version.
 like `1.9.0-3-g0c13781-dirty` instead, which is how the two are told apart on a device.
 
 Building from source needs Go and `make`: clone the repository and run `make help` for the targets;
-[`CLAUDE.md`](CLAUDE.md) describes the architecture, the tests and the release process.
+`make test` (the tests, Linux only) and `make lint` (go vet, golangci-lint, govulncheck) run what CI
+checks. [`CLAUDE.md`](CLAUDE.md) describes the architecture, the tests and the release process.
 
 ---
 

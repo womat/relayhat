@@ -15,6 +15,8 @@ GOOS=linux GOARCH=arm64 go vet ./...
 GOOS=linux GOARCH=arm64 go build ./...
 ```
 
+`make lint` runs `go vet`, golangci-lint (v2, default linters; `.golangci.yml` holds the exclusions, each with its reason) and govulncheck for linux/armv6, each also with `-tags swagger` where it applies. The tools are built for the host into `bin/tools` and pinned in the Makefile, because `go run` under the target's `GOOS`/`GOARCH` would build a binary the host cannot execute. Fix a finding unless it is deliberate; then exclude it narrowly (one function in `exclude-functions`, or path + linter + text), never by switching a linter off.
+
 ```sh
 make build_arm6        # every Pi in 32-bit mode, Pi 1 / Zero — the default deployment target
 make build_arm7        # Pi 2/3/4/5, 32-bit OS
@@ -34,7 +36,7 @@ Tests use golib's in-memory GPIO emulator (`gpio/rpiemu`) through `relay.NewWith
 
 Versioning is SemVer and the Git tag is the single source of truth. `.github/workflows/release.yml` runs `goreleaser release --clean`, which builds linux arm64/armv7/armv6 and publishes a GitHub release with checksums and a grouped changelog. `.goreleaser.yaml`'s `before` hook must keep running `make ensure_dev_certs` (GoReleaser calls `go build` directly), and archives must keep shipping `README.md` (third-party license overview) and `LICENSE` (MIT). When adding a dependency, update the license table in `README.md`.
 
-`.github/workflows/ci.yml` runs on every push/PR against `main`: a `test` job (native, `make test`) and a `build` matrix over armv6/armv7/arm64 that vets, builds (also `-tags swagger`) and runs govulncheck. All actions are pinned to a commit SHA with the release in a comment, `govulncheck` to a version; `.github/dependabot.yml` updates actions and Go modules weekly, but not the `go install` pins.
+`.github/workflows/ci.yml` runs on every push/PR against `main`: a `test` job (native, `make test`) and a `build` matrix over armv6/armv7/arm64 that vets, builds (also `-tags swagger`) and runs golangci-lint (also `-tags swagger`) and govulncheck. All actions are pinned to a commit SHA with the release in a comment, `golangci-lint` and `govulncheck` to a version (in `ci.yml` and the Makefile's `lint` target); `.github/dependabot.yml` updates actions and Go modules weekly, but not the `go install` pins.
 
 `PI_USER`/`PI_HOST`/`PI_PATH` default to placeholders; the actual device comes from environment variables (set once for all projects; they win over the `?=` defaults) or, project-specific, from `Makefile.local` (gitignored, pulled in via `-include`). **`PI_ARCH` defaults to `arm6`**, like in s0meter: it runs on every Pi in 32-bit mode, and a Pi Zero (1st gen, 2-channel HAT) is ARMv6 only, where an arm64 binary dies with `Exec format error`. Every `deploy*` target follows it, so none of them may hardcode an architecture; CI runs a matrix over armv6/armv7/arm64. `make deploy` is the development loop (binary reports a `-dirty` version), `make deploy_release TAG=vX.Y.Z` downloads, verifies and copies a published release.
 

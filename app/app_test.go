@@ -106,8 +106,11 @@ func TestInitFailureHandsEverythingBack(t *testing.T) {
 	if got := decode[HTTPResponse](t, serve(third, "GET", "/relays/old", testKey)); got.State != "on" {
 		t.Errorf("relay after falling back = %q, want on", got.State)
 	}
-	// The mutex must be free again.
-	second.mu.Lock()
+	// The mutex must be free again. TryLock rather than Lock: a mutex still held fails the test
+	// instead of hanging it.
+	if !second.mu.TryLock() {
+		t.Fatal("app.mu is still held after the failed Init")
+	}
 	second.mu.Unlock()
 }
 
