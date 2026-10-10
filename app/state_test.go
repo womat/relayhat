@@ -13,7 +13,7 @@ func TestRelayStatesRoundTrip(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "state.yaml")
 	changed := time.Date(2026, 10, 7, 14, 2, 13, 0, time.FixedZone("CEST", 2*3600))
 	want := map[string]savedState{
-		"pump":  {State: relay.On, Change: Change{Time: changed, Source: SourceAPI, Client: "192.168.65.20", Host: "nodered.fritz.box"}},
+		"pump":  {State: relay.On, Change: Change{Time: changed, Source: SourceAPI, Client: "192.0.2.20", Host: "nodered.fritz.box"}},
 		"light": {State: relay.Off},
 	}
 
@@ -25,7 +25,7 @@ func TestRelayStatesRoundTrip(t *testing.T) {
 		t.Errorf("readRelayStates = %+v, want %+v", got, want)
 	}
 	if p := got["pump"]; p.State != relay.On || !p.Change.Time.Equal(changed) || p.Change.Source != SourceAPI ||
-		p.Change.Client != "192.168.65.20" || p.Change.Host != "nodered.fritz.box" {
+		p.Change.Client != "192.0.2.20" || p.Change.Host != "nodered.fritz.box" {
 		t.Errorf("pump = %+v, want %+v", p, want["pump"])
 	}
 

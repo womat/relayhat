@@ -9,7 +9,7 @@ package app
 //	  state: on
 //	  changed: 2026-10-07T14:02:13+02:00
 //	  source: api
-//	  client: 192.168.65.20
+//	  client: 192.0.2.20
 //	  host: nodered.fritz.box
 //
 // The format of relayhat 1.7, "relay1: on", is still read.

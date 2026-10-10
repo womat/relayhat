@@ -261,7 +261,7 @@ func TestLateHostNameDoesNotOverwriteNewerSwitch(t *testing.T) {
 
 func TestLastChangeSurvivesRestartAndReload(t *testing.T) {
 	changed := time.Date(2026, 10, 7, 14, 2, 13, 0, time.Local)
-	saved := Change{Time: changed, Source: SourceAPI, Client: "192.168.65.20", Host: "nodered.fritz.box"}
+	saved := Change{Time: changed, Source: SourceAPI, Client: "192.0.2.20", Host: "nodered.fritz.box"}
 
 	cfg := testConfig(t, map[string]RelayConfig{
 		"keep":    {GPIO: 4, StartState: StartLast},
