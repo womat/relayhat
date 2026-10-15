@@ -226,6 +226,17 @@ func (app *App) Run() (*App, error) {
 	// handle the OS signals
 	app.HandleOSSignals()
 
+	names := make([]string, 0, len(app.config.Webserver.Tokens))
+	for _, t := range app.config.Webserver.Tokens {
+		names = append(names, t.Name)
+	}
+	if len(names) == 0 {
+		slog.Warn("No bearer tokens loaded, every request to /health and /relays is rejected",
+			"tokenFile", app.config.Webserver.TokenFile)
+	} else {
+		slog.Info("Bearer tokens loaded", "tokenFile", app.config.Webserver.TokenFile, "names", names)
+	}
+
 	slog.Info("Starting web server", "url", app.web.Addr)
 	if err := app.StartWebServer(); err != nil {
 		slog.Error("Web server failed to start", "url", app.web.Addr, "error", err)

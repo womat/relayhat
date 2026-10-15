@@ -64,7 +64,7 @@ type LastChangeInfo struct {
 //	@Description	Returns name, state (on/off) and description for the given relay.
 //	@Tags			relay
 //	@Produce		json
-//	@Security		ApiKeyAuth
+//	@Security		BearerAuth
 //	@Param			name	path		string			true	"Relay name (e.g. relay1)"
 //	@Success		200		{object}	HTTPResponse	"Relay state"
 //	@Failure		401		{object}	web.ApiError	"Unauthorized"
@@ -92,7 +92,7 @@ func (app *App) HandleRelayGetOne() http.Handler {
 //	@Description	Returns name, state (on/off) and description for every configured relay.
 //	@Tags			relay
 //	@Produce		json
-//	@Security		ApiKeyAuth
+//	@Security		BearerAuth
 //	@Success		200	{array}		HTTPResponse	"List of all relays"
 //	@Failure		401	{object}	web.ApiError	"Unauthorized"
 //	@Failure		500	{object}	web.ApiError	"Internal server error"
@@ -129,7 +129,7 @@ func (app *App) HandleRelayGetAll() http.Handler {
 //	@Description	Sets the state of a specific relay by name.
 //	@Tags			relay
 //	@Produce		json
-//	@Security		ApiKeyAuth
+//	@Security		BearerAuth
 //	@Param			name	path		string			true	"Relay name"
 //	@Param			state	path		string			true	"Relay state (on/off)"
 //	@Success		200		{object}	HTTPResponse	"Relay state successfully set"

@@ -85,7 +85,7 @@ func TestInitFailureHandsEverythingBack(t *testing.T) {
 	handover := restart(t, first)
 
 	cfg := NewConfig()
-	cfg.Webserver.ApiKey = testKey
+	cfg.Webserver.Tokens = []web.Token{{Name: "test", Hash: web.HashToken(testKey)}}
 	cfg.Relays = map[string]RelayConfig{"a": {GPIO: 4}, "b": {GPIO: 5}}
 	second := New(cfg, nil, nil, handover)
 	second.openRelay = func(int) (*relay.Relay, error) { return nil, errors.New("gpio busy") }

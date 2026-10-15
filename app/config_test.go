@@ -3,7 +3,6 @@ package app
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -19,7 +18,8 @@ func writeConfig(t *testing.T, content string) string {
 }
 
 func TestLoadConfigExample(t *testing.T) {
-	cfg, err := LoadConfig("../config/config.yaml")
+	// readConfig: the example names /opt/relayhat/etc/tokens, which does not exist here.
+	cfg, err := readConfig("../config/config.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,12 +56,12 @@ func TestLoadConfigEmptyFileGivesDefaults(t *testing.T) {
 
 func TestLoadConfigExpandsBracedVariablesOnly(t *testing.T) {
 	t.Setenv("RELAYHAT_TEST_KEY", "from-env")
-	cfg, err := LoadConfig(writeConfig(t, "webserver:\n  apiKey: ${RELAYHAT_TEST_KEY}\n  keyFile: /etc/pa$word.pem\n"))
+	cfg, err := LoadConfig(writeConfig(t, "webserver:\n  certFile: ${RELAYHAT_TEST_KEY}\n  keyFile: /etc/pa$word.pem\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Webserver.ApiKey != "from-env" {
-		t.Errorf("apiKey = %q, want from-env", cfg.Webserver.ApiKey)
+	if cfg.Webserver.CertFile != "from-env" {
+		t.Errorf("certFile = %q, want from-env", cfg.Webserver.CertFile)
 	}
 	if cfg.Webserver.KeyFile != "/etc/pa$word.pem" {
 		t.Errorf("a bare $ was changed: %q", cfg.Webserver.KeyFile)
@@ -87,7 +87,7 @@ func TestExpandEnvBraces(t *testing.T) {
 // validConfig returns a config that passes Validate.
 func validConfig() *Config {
 	c := NewConfig()
-	c.Webserver.ApiKey = "0123456789abcdefXYZ"
+	c.Webserver.TokenFile = "/opt/relayhat/etc/tokens"
 	c.Relays = map[string]RelayConfig{
 		"a": {GPIO: 2},
 		"b": {GPIO: 27},
@@ -115,7 +115,7 @@ func TestValidate(t *testing.T) {
 	}
 
 	invalid := map[string]func(*Config){
-		"missing apiKey":        func(c *Config) { c.Webserver.ApiKey = "" },
+		"missing tokenFile":     func(c *Config) { c.Webserver.TokenFile = "" },
 		"unknown env":           func(c *Config) { c.Env = "staging" },
 		"unknown log level":     func(c *Config) { c.LogLevel = "trace" },
 		"port out of range":     func(c *Config) { c.Webserver.ListenPort = 70000 },
@@ -148,25 +148,6 @@ func TestValidate(t *testing.T) {
 				t.Error("expected an error")
 			}
 		})
-	}
-}
-
-func TestWarnings(t *testing.T) {
-	c := validConfig()
-	if w := c.Warnings(); len(w) != 0 {
-		t.Errorf("strong key: unexpected warnings %v", w)
-	}
-
-	for _, key := range []string{"Xq7z", "changeme!", "my-ChangeMe-key-that-is-long"} {
-		c.Webserver.ApiKey = key
-		w := c.Warnings()
-		if len(w) != 1 {
-			t.Errorf("key %q: warnings = %v, want one", key, w)
-			continue
-		}
-		if strings.Contains(w[0], key) {
-			t.Errorf("warning leaks the key: %q", w[0])
-		}
 	}
 }
 

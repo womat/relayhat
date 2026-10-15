@@ -119,7 +119,7 @@ paths:
           schema:
             $ref: '#/definitions/web.ApiError'
       security:
-      - ApiKeyAuth: []
+      - BearerAuth: []
       summary: Get health data
       tags:
       - info
@@ -145,7 +145,7 @@ paths:
           schema:
             $ref: '#/definitions/web.ApiError'
       security:
-      - ApiKeyAuth: []
+      - BearerAuth: []
       summary: List all relays
       tags:
       - relay
@@ -178,7 +178,7 @@ paths:
           schema:
             $ref: '#/definitions/web.ApiError'
       security:
-      - ApiKeyAuth: []
+      - BearerAuth: []
       summary: Get relay state
       tags:
       - relay
@@ -229,7 +229,7 @@ paths:
           schema:
             $ref: '#/definitions/web.ApiError'
       security:
-      - ApiKeyAuth: []
+      - BearerAuth: []
       summary: Set relay state
       tags:
       - relay
@@ -253,8 +253,9 @@ paths:
       tags:
       - info
 securityDefinitions:
-  ApiKeyAuth:
+  BearerAuth:
+    description: A token from "relayhat token add <name>", sent as "Bearer <token>".
     in: header
-    name: X-API-Key
+    name: Authorization
     type: apiKey
 swagger: "2.0"

@@ -35,7 +35,8 @@ func (e emuRelays) open(n int) (*relay.Relay, error) {
 func testConfig(t *testing.T, relays map[string]RelayConfig) *Config {
 	t.Helper()
 	cfg := NewConfig()
-	cfg.Webserver.ApiKey = testKey
+	cfg.Webserver.TokenFile = "/opt/relayhat/etc/tokens"
+	cfg.Webserver.Tokens = []web.Token{{Name: "test", Hash: web.HashToken(testKey)}}
 	cfg.StateFile = filepath.Join(t.TempDir(), "state.yaml")
 	cfg.Relays = relays
 	return cfg
@@ -65,11 +66,12 @@ func startTestApp(t *testing.T, cfg *Config, inherited map[int]*Relay) (*App, em
 	return app, pins
 }
 
-func serve(app *App, method, path, key string) *httptest.ResponseRecorder {
+// serve sends method path, with token as bearer token unless it is empty.
+func serve(app *App, method, path, token string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, nil)
 	req.RemoteAddr = "127.0.0.1:1234"
-	if key != "" {
-		req.Header.Set("X-API-Key", key)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	rec := httptest.NewRecorder()
 	app.web.Handler.ServeHTTP(rec, req)
@@ -85,7 +87,7 @@ func decode[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
 	return v
 }
 
-func TestRoutesRequireApiKey(t *testing.T) {
+func TestRoutesRequireToken(t *testing.T) {
 	app, _ := newTestApp(t, map[string]RelayConfig{"r1": {GPIO: 4}}, nil)
 
 	if rec := serve(app, http.MethodGet, "/version", ""); rec.Code != http.StatusOK {

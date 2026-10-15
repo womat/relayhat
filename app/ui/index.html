@@ -7,8 +7,8 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563a8'/%3E%3Cpath d='M4 22h6M22 22h6M12.5 21 21 15' fill='none' stroke='%23fff' stroke-width='2.6' stroke-linecap='round'/%3E%3Ccircle cx='11' cy='22' r='2' fill='%23fff'/%3E%3Ccircle cx='21' cy='22' r='2' fill='%23fff'/%3E%3C/svg%3E">
 <!--
   Web page of relayhat, embedded in the binary and served at GET /.
-  It holds no data itself: it asks for the API key once, keeps it in localStorage, polls
-  /relays and /health with it and switches through PATCH /relays/{name}/{state}. A switch
+  It holds no data itself: it asks for a token once, keeps it in localStorage, polls
+  /relays and /health with it as a bearer token and switches through PATCH /relays/{name}/{state}. A switch
   takes two taps: the first arms the button for a few seconds, the second confirms. While a
   relay's switch lock (minSwitchInterval) runs, its button is disabled and counts down.
   Self-contained on purpose - no external fonts or scripts, the Pi may have no internet access.
@@ -172,10 +172,10 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8p
   <section id="login" hidden>
     <form class="keybox" id="keyform">
       <h2>relayhat</h2>
-      <p id="keyerr" class="err" hidden>The API key was rejected. Check webserver.apiKey in the config.</p>
-      <label for="apikey" class="lbl">API key</label>
-      <input id="apikey" type="password" autocomplete="current-password" placeholder="webserver.apiKey" required>
-      <p>Stored in this browser only and sent as X-API-Key.</p>
+      <p id="keyerr" class="err" hidden>The token was rejected. Check webserver.tokenFile on the Pi.</p>
+      <label for="apikey" class="lbl">Token</label>
+      <input id="apikey" type="password" autocomplete="current-password" placeholder="relayhat token add browser" required>
+      <p>Stored in this browser only and sent as a bearer token.</p>
       <button type="submit">Connect</button>
     </form>
   </section>
@@ -443,7 +443,7 @@ function stale(reason) {
 
 // request calls the API; an error answer {"error": …} becomes the message of the thrown error.
 async function request(path, method = "GET") {
-  const r = await fetch(path, { method, headers: { "X-API-Key": apiKey }, cache: "no-store" });
+  const r = await fetch(path, { method, headers: { "Authorization": "Bearer " + apiKey }, cache: "no-store" });
   if (r.status === 401) throw Object.assign(new Error("unauthorized"), { auth: true });
   if (!r.ok) {
     let msg = `${r.status}`;
