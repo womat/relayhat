@@ -1,22 +1,17 @@
 package app
 
 import (
-	"context"
 	"errors"
 	"log/slog"
 	"net"
 	"net/http"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/womat/golib/web"
 	"github.com/womat/relayhat/pkg/relay"
 )
-
-// lookupTimeout bounds the reverse DNS lookup of a client after a switch.
-const lookupTimeout = 2 * time.Second
 
 var (
 	errRelayNotFound = errors.New("relay not found")
@@ -55,7 +50,7 @@ type LastChangeInfo struct {
 	AgeSeconds float64 `json:"ageSeconds"`       // seconds since Time, by the Pi's clock
 	Source     string  `json:"source"`           // api, or start when relayhat switched it on start
 	Client     string  `json:"client,omitempty"` // IP address of the API client
-	Host       string  `json:"host,omitempty"`   // reverse DNS name of the client, when it has one
+	User       string  `json:"user,omitempty"`   // name of the bearer token the client sent
 }
 
 // HandleRelayGetOne returns the state of a single relay by name.
@@ -147,7 +142,8 @@ func (app *App) HandleRelaySet() http.Handler {
 			name := r.PathValue("name")
 			state := r.PathValue("state")
 
-			res, stat, err := app.relaySet(name, state, r.RemoteAddr)
+			user, _ := web.UserFrom(r.Context())
+			res, stat, err := app.relaySet(name, state, r.RemoteAddr, user)
 			if err != nil {
 				var locked errSwitchLocked
 				if errors.As(err, &locked) {
@@ -203,18 +199,17 @@ func (app *App) relayGet(name string) (HTTPResponse, int, error) {
 			AgeSeconds: app.now().Sub(c.Time).Seconds(),
 			Source:     c.Source,
 			Client:     c.Client,
-			Host:       c.Host,
+			User:       c.User,
 		}
 	}
 	return res, http.StatusOK, nil
 }
 
 // relaySet switches a relay, logs who switched it, records the switch and saves the states.
-// client is the request's remote address; its host name is looked up afterwards, so the
-// switch never waits for DNS. A relay already in state is not switched again: the request
+// client is the request's remote address, user the name of its bearer token. A relay already in state is not switched again: the request
 // succeeds, but neither the last switch nor the switch lock change. Within minSwitchInterval
 // of the last switch the request fails with 429.
-func (app *App) relaySet(name, state, client string) (HTTPResponse, int, error) {
+func (app *App) relaySet(name, state, client, user string) (HTTPResponse, int, error) {
 	var want relay.State
 	switch state {
 	case relay.On.String():
@@ -240,57 +235,23 @@ func (app *App) relaySet(name, state, client string) (HTTPResponse, int, error) 
 		app.mu.RUnlock()
 		return HTTPResponse{}, http.StatusNotFound, errRelayNotFound
 	}
-	from, switched, err := r.switchTo(want, Change{Time: at, Source: SourceAPI, Client: ip})
+	from, switched, err := r.switchTo(want, Change{Time: at, Source: SourceAPI, Client: ip, User: user})
 	app.mu.RUnlock()
 	var locked errSwitchLocked
 	switch {
 	case errors.As(err, &locked):
-		slog.Info("Relay switch refused, locked", "name", name, "to", state, "client", ip, "remaining", locked.remaining)
+		slog.Info("Relay switch refused, locked", "name", name, "to", state, "user", user, "client", ip, "remaining", locked.remaining)
 		return HTTPResponse{}, http.StatusTooManyRequests, err
 	case err != nil:
 		return HTTPResponse{}, http.StatusInternalServerError, err
 	case !switched:
-		slog.Debug("Relay already in the requested state", "name", name, "state", state, "client", ip)
+		slog.Debug("Relay already in the requested state", "name", name, "state", state, "user", user, "client", ip)
 		return app.relayGet(name)
 	}
 
-	slog.Info("Relay switched", "name", name, "gpio", r.GPIO(), "from", from, "to", state, "client", ip)
+	slog.Info("Relay switched", "name", name, "gpio", r.GPIO(), "from", from, "to", state, "user", user, "client", ip)
 	app.saveStates()
-	app.resolveClient(r, at, ip)
 	return app.relayGet(name)
-}
-
-// resolveClient looks up the host name of ip in the background and adds it to the relay's
-// last switch at, unless the relay has been switched again meanwhile. The lookup is bound to
-// the App's context and tracked in app.wg, so a shutdown cancels and waits for it.
-func (app *App) resolveClient(r *Relay, at time.Time, ip string) {
-	if ip == "" {
-		return
-	}
-	// Checked and added under app.mu, see App.stop.
-	app.mu.RLock()
-	defer app.mu.RUnlock()
-	if app.ctx.Err() != nil {
-		return
-	}
-	app.wg.Add(1)
-	go func() {
-		defer app.wg.Done()
-
-		ctx, cancel := context.WithTimeout(app.ctx, lookupTimeout)
-		defer cancel()
-		names, err := app.lookupAddr(ctx, ip)
-		if err != nil || len(names) == 0 {
-			slog.Debug("Client has no host name", "client", ip, "error", err)
-			return
-		}
-
-		host := strings.TrimSuffix(names[0], ".")
-		slog.Debug("Client resolved", "client", ip, "host", host)
-		if r.setHost(at, host) && app.ctx.Err() == nil {
-			app.saveStates()
-		}
-	}()
 }
 
 // clientIP returns the IP address of a request's remote address "ip:port".

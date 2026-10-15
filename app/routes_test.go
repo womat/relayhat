@@ -1,9 +1,7 @@
 package app
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -48,21 +46,16 @@ func newTestApp(t *testing.T, relays map[string]RelayConfig, inherited map[int]*
 	return startTestApp(t, testConfig(t, relays), inherited)
 }
 
-// startTestApp returns an initialized App for cfg with its relays on emulated pins. Clients
-// have no host name unless the test replaces app.lookupAddr.
+// startTestApp returns an initialized App for cfg with its relays on emulated pins.
 func startTestApp(t *testing.T, cfg *Config, inherited map[int]*Relay) (*App, emuRelays) {
 	t.Helper()
 	pins := emuRelays{}
 	app := New(cfg, nil, nil, inherited)
 	app.openRelay = pins.open
-	app.lookupAddr = func(context.Context, string) ([]string, error) { return nil, errors.New("no host name") }
 	if err := app.Init(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		app.wg.Wait() // host name lookups
-		_ = app.Cleanup()
-	})
+	t.Cleanup(func() { _ = app.Cleanup() })
 	return app, pins
 }
 

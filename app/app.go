@@ -62,11 +62,10 @@ type App struct {
 	ctx         context.Context
 	cancelFunc  context.CancelFunc
 
-	now        func() time.Time                                         // time.Now; replaced in tests
-	openRelay  func(gpio int) (*relay.Relay, error)                     // relay.New; replaced in tests
-	lookupAddr func(ctx context.Context, addr string) ([]string, error) // reverse DNS; replaced in tests
-	inherited  map[int]*Relay                                           // open relays of the previous App by GPIO, consumed by Init
-	handover   map[int]*Relay                                           // open relays for the next App, set on restart
+	now       func() time.Time                     // time.Now; replaced in tests
+	openRelay func(gpio int) (*relay.Relay, error) // relay.New; replaced in tests
+	inherited map[int]*Relay                       // open relays of the previous App by GPIO, consumed by Init
+	handover  map[int]*Relay                       // open relays for the next App, set on restart
 
 	mu     sync.RWMutex // protects app.relays
 	relays map[string]*Relay
@@ -164,18 +163,6 @@ func (r *Relay) setChange(c Change) {
 	r.mu.Unlock()
 }
 
-// setHost adds the client's host name to the last switch, unless the relay has been switched
-// again since then, at.
-func (r *Relay) setHost(at time.Time, host string) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if !r.change.Time.Equal(at) {
-		return false
-	}
-	r.change.Host = host
-	return true
-}
-
 // New initializes the App struct but does not start services.
 //
 // signals must already be subscribed (signal.Notify) to SIGHUP, SIGTERM and SIGINT, and stay
@@ -208,7 +195,6 @@ func New(config *Config, signals <-chan os.Signal, checkReload func() error, inh
 		cancelFunc: cancel,
 		now:        time.Now,
 		openRelay:  relay.New,
-		lookupAddr: net.DefaultResolver.LookupAddr,
 		inherited:  inherited,
 		relays:     make(map[string]*Relay),
 	}
@@ -504,11 +490,11 @@ func (app *App) shutdownProcedure(mode int) {
 	}
 }
 
-// stop cancels the App's context and waits for the web server and the host name lookups, so
-// no request switches a relay that is handed over or closed afterwards.
+// stop cancels the App's context and waits for the web server, so no request switches a relay
+// that is handed over or closed afterwards.
 //
-// The context is cancelled under app.mu, which resolveClient holds while it checks the
-// context and adds to app.wg; so no lookup can be added once Wait has started.
+// The context is cancelled under app.mu, which relaySet holds while it checks the context and
+// switches; so no switch starts once stop has returned.
 func (app *App) stop() {
 	app.mu.Lock()
 	app.cancelFunc()

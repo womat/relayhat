@@ -274,11 +274,10 @@ function label(r) { return r.display.label || r.name; }
 function stateText(r, s) { return (s === "on" ? r.display.onText : r.display.offText) || s.toUpperCase(); }
 function target(r) { return r.state === "on" ? "off" : "on"; }
 
-// "nodered.fritz.box" -> "nodered"; an IP stays as it is.
-function shortHost(h) { return /^[\d.]+$|:/.test(h) ? h : h.split(".")[0]; }
+// Who switched: the name of the caller's token, the IP address with it in the tooltip.
 function by(c) {
   if (c.source === "start") return ["relayhat start", "switched to its start state when relayhat started"];
-  if (c.host) return [shortHost(c.host), `${c.host} (${c.client})`];
+  if (c.user) return [c.user, `token ${c.user} from ${c.client}`];
   return [c.client || "unknown", c.client || ""];
 }
 

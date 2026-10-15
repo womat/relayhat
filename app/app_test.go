@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"path/filepath"
@@ -114,8 +113,7 @@ func TestInitFailureHandsEverythingBack(t *testing.T) {
 	second.mu.Unlock()
 }
 
-// After a shutdown has begun, a request still running must neither switch a relay nor start a
-// host name lookup the shutdown no longer waits for.
+// After a shutdown has begun, a request still running must not switch a relay.
 func TestNoSwitchAfterShutdownStarted(t *testing.T) {
 	app, pins := newTestApp(t, map[string]RelayConfig{"r1": {GPIO: 4}}, nil)
 	app.stop()
@@ -126,8 +124,6 @@ func TestNoSwitchAfterShutdownStarted(t *testing.T) {
 	if l, _ := pins[4].Value(); l != gpio.Low {
 		t.Error("a request after stop switched the relay")
 	}
-	app.resolveClient(app.relays["r1"], time.Now(), "127.0.0.1") // must not add to app.wg
-	app.wg.Wait()
 }
 
 func TestStartStates(t *testing.T) {
@@ -215,15 +211,11 @@ func TestHandoverIgnoresStartState(t *testing.T) {
 	}
 }
 
-func TestSwitchRecordsClientAndHost(t *testing.T) {
+// The last switch names the token of the caller, so Node-RED can tell its own switches from
+// one made in the web page, and keeps the client address.
+func TestSwitchRecordsClientAndUser(t *testing.T) {
 	cfg := testConfig(t, map[string]RelayConfig{"pump": {GPIO: 4}})
 	app, _ := startTestApp(t, cfg, nil)
-	app.lookupAddr = func(_ context.Context, addr string) ([]string, error) {
-		if addr != "127.0.0.1" {
-			t.Errorf("looked up %q, want the bare client IP", addr)
-		}
-		return []string{"nodered.fritz.box."}, nil
-	}
 
 	start := decode[HTTPResponse](t, serve(app, "GET", "/relays/pump", testKey)).LastChange
 	if start == nil || start.Source != SourceStart || start.Client != "" {
@@ -231,37 +223,17 @@ func TestSwitchRecordsClientAndHost(t *testing.T) {
 	}
 
 	got := decode[HTTPResponse](t, serve(app, "PATCH", "/relays/pump/on", testKey)).LastChange
-	if got == nil || got.Source != SourceAPI || got.Client != "127.0.0.1" {
-		t.Fatalf("lastChange after PATCH = %+v, want source api from 127.0.0.1", got)
+	if got == nil || got.Source != SourceAPI || got.Client != "127.0.0.1" || got.User != "test" {
+		t.Fatalf("lastChange after PATCH = %+v, want source api from 127.0.0.1 by token test", got)
 	}
-
-	app.wg.Wait() // the host name lookup
-	got = decode[HTTPResponse](t, serve(app, "GET", "/relays/pump", testKey)).LastChange
-	if got.Host != "nodered.fritz.box" {
-		t.Errorf("lastChange host = %q, want nodered.fritz.box", got.Host)
-	}
-	if saved := readRelayStates(cfg.StateFile)["pump"].Change; saved.Host != "nodered.fritz.box" || saved.Client != "127.0.0.1" {
-		t.Errorf("state file holds %+v, want client and host of the switch", saved)
-	}
-}
-
-func TestLateHostNameDoesNotOverwriteNewerSwitch(t *testing.T) {
-	r := &Relay{}
-	first := time.Now()
-	r.setChange(Change{Time: first, Source: SourceAPI, Client: "10.0.0.1"})
-	r.setChange(Change{Time: first.Add(time.Second), Source: SourceAPI, Client: "10.0.0.2"})
-
-	if r.setHost(first, "old-client") {
-		t.Error("setHost changed a newer switch")
-	}
-	if got := r.LastChange(); got.Host != "" || got.Client != "10.0.0.2" {
-		t.Errorf("LastChange = %+v, want the newer switch untouched", got)
+	if saved := readRelayStates(cfg.StateFile)["pump"].Change; saved.User != "test" || saved.Client != "127.0.0.1" {
+		t.Errorf("state file holds %+v, want client and user of the switch", saved)
 	}
 }
 
 func TestLastChangeSurvivesRestartAndReload(t *testing.T) {
 	changed := time.Date(2026, 10, 7, 14, 2, 13, 0, time.Local)
-	saved := Change{Time: changed, Source: SourceAPI, Client: "192.0.2.20", Host: "nodered.fritz.box"}
+	saved := Change{Time: changed, Source: SourceAPI, Client: "192.0.2.20", User: "nodered"}
 
 	cfg := testConfig(t, map[string]RelayConfig{
 		"keep":    {GPIO: 4, StartState: StartLast},
@@ -277,7 +249,7 @@ func TestLastChangeSurvivesRestartAndReload(t *testing.T) {
 	// Cold start: "keep" starts on, as the file says, so the saved switch is still its last one;
 	// "differs" starts off although it was on, so the start is its last switch.
 	first, _ := startTestApp(t, cfg, nil)
-	if got := first.relays["keep"].LastChange(); !got.Time.Equal(changed) || got.Host != saved.Host {
+	if got := first.relays["keep"].LastChange(); !got.Time.Equal(changed) || got.User != saved.User {
 		t.Errorf("keep: LastChange = %+v, want the saved switch", got)
 	}
 	if got := first.relays["differs"].LastChange(); got.Source != SourceStart {

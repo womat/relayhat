@@ -10,9 +10,10 @@ package app
 //	  changed: 2026-10-07T14:02:13+02:00
 //	  source: api
 //	  client: 192.0.2.20
-//	  host: nodered.fritz.box
+//	  user: nodered
 //
-// The format of relayhat 1.7, "relay1: on", is still read.
+// The format of relayhat 1.7, "relay1: on", is still read, and so is the host of relayhat 1.8
+// and 1.9, which is ignored.
 //
 // A missing, empty or damaged file is never fatal: relayhat has to come up, and "off" is the
 // safe fallback. The relays that wanted their last state then start off, and the log says why.
@@ -41,7 +42,7 @@ type Change struct {
 	Time   time.Time
 	Source string // SourceAPI or SourceStart
 	Client string // IP address of the API client, empty for SourceStart
-	Host   string // reverse DNS name of Client, empty when unknown
+	User   string // name of the bearer token the client sent, empty for SourceStart
 }
 
 // savedRelay is one relay in the state file.
@@ -50,7 +51,7 @@ type savedRelay struct {
 	Changed time.Time `yaml:"changed,omitempty"`
 	Source  string    `yaml:"source,omitempty"`
 	Client  string    `yaml:"client,omitempty"`
-	Host    string    `yaml:"host,omitempty"`
+	User    string    `yaml:"user,omitempty"`
 }
 
 // UnmarshalYAML reads both the current map form and the plain "on"/"off" of relayhat 1.7.
@@ -106,7 +107,7 @@ func readRelayStates(file string) map[string]savedState {
 		}
 		states[name] = savedState{
 			State:  st,
-			Change: Change{Time: v.Changed, Source: v.Source, Client: v.Client, Host: v.Host},
+			Change: Change{Time: v.Changed, Source: v.Source, Client: v.Client, User: v.User},
 		}
 	}
 	return states
@@ -121,7 +122,7 @@ func saveRelayStates(file string, states map[string]savedState) error {
 			Changed: s.Change.Time,
 			Source:  s.Change.Source,
 			Client:  s.Change.Client,
-			Host:    s.Change.Host,
+			User:    s.Change.User,
 		}
 	}
 

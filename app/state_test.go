@@ -13,7 +13,7 @@ func TestRelayStatesRoundTrip(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "state.yaml")
 	changed := time.Date(2026, 10, 7, 14, 2, 13, 0, time.FixedZone("CEST", 2*3600))
 	want := map[string]savedState{
-		"pump":  {State: relay.On, Change: Change{Time: changed, Source: SourceAPI, Client: "192.0.2.20", Host: "nodered.fritz.box"}},
+		"pump":  {State: relay.On, Change: Change{Time: changed, Source: SourceAPI, Client: "192.0.2.20", User: "nodered"}},
 		"light": {State: relay.Off},
 	}
 
@@ -25,7 +25,7 @@ func TestRelayStatesRoundTrip(t *testing.T) {
 		t.Errorf("readRelayStates = %+v, want %+v", got, want)
 	}
 	if p := got["pump"]; p.State != relay.On || !p.Change.Time.Equal(changed) || p.Change.Source != SourceAPI ||
-		p.Change.Client != "192.0.2.20" || p.Change.Host != "nodered.fritz.box" {
+		p.Change.Client != "192.0.2.20" || p.Change.User != "nodered" {
 		t.Errorf("pump = %+v, want %+v", p, want["pump"])
 	}
 
@@ -91,3 +91,17 @@ func TestSaveRelayStatesMissingDirectory(t *testing.T) {
 }
 
 func ptr(s string) *string { return &s }
+
+// A state file of relayhat 1.8 or 1.9 carries the reverse DNS name as host; it is still read,
+// the host is ignored.
+func TestReadRelayStatesWithHost(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "state.yaml")
+	data := "relay2:\n    state: \"on\"\n    changed: 2026-10-13T13:42:18+02:00\n    source: api\n    client: 192.0.2.42\n    host: nodered.example\n"
+	if err := os.WriteFile(file, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := readRelayStates(file)["relay2"]
+	if got.State != relay.On || got.Change.Client != "192.0.2.42" || got.Change.User != "" {
+		t.Errorf("relay2 = %+v, want on from 192.0.2.42 without a user", got)
+	}
+}

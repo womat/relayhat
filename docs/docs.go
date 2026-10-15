@@ -313,16 +313,16 @@ const docTemplate = `{
                     "description": "IP address of the API client",
                     "type": "string"
                 },
-                "host": {
-                    "description": "reverse DNS name of the client, when it has one",
-                    "type": "string"
-                },
                 "source": {
                     "description": "api, or start when relayhat switched it on start",
                     "type": "string"
                 },
                 "time": {
                     "description": "RFC 3339, in the Pi's time zone",
+                    "type": "string"
+                },
+                "user": {
+                    "description": "name of the bearer token the client sent",
                     "type": "string"
                 }
             }
