@@ -2,7 +2,7 @@
 
 Serves the real app/ui/index.html with a mocked API (/relays, /health and PATCH
 /relays/{name}/{state}, bearer token "demo"), clicks through login, the two-step switch and a
-rejected key in headless Chromium, then photographs the page. Run from the project root, on
+rejected token in headless Chromium, then photographs the page. Run from the project root, on
 demand only:
 
     docker run --rm -v "$PWD":/src -w /src mcr.microsoft.com/playwright/python:v1.52.0-noble \
@@ -149,8 +149,8 @@ def check(browser):
     card = page.locator("article.card").first
     button = card.locator("button.switch")
 
-    # Login: a wrong key is rejected, the right one shows the relays.
-    assert page.locator("#login").is_visible(), "no login without a stored key"
+    # Login: a wrong token is rejected, the right one shows the relays.
+    assert page.locator("#login").is_visible(), "no login without a stored token"
     page.fill("#apikey", "wrong")
     page.click("#keyform button")
     page.wait_for_selector("#keyerr:not([hidden])")
@@ -203,7 +203,7 @@ def check(browser):
     page.wait_for_function("!document.querySelectorAll('article.card')[1].querySelector('.switch').disabled", timeout=8000)
     assert button2.inner_text() == "→ Forced run", button2.inner_text()
 
-    # A key the server no longer accepts leads back to the login.
+    # A token the server no longer accepts leads back to the login.
     API.reject = True
     page.wait_for_selector("#keyerr:not([hidden])", timeout=5000)
     page.close()

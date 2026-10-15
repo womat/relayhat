@@ -67,7 +67,7 @@ No cloud, no database, no runtime: a single binary, configured with one YAML fil
 | `linux_arm64`  | Pi 3 / 4 / 5 / 400 / Zero 2 W with a 64-bit OS        |
 
 ```sh
-VERSION=1.9.0 ARCH=armv6        # see the release page for the latest version
+VERSION=2.0.1 ARCH=armv6        # see the release page for the latest version
 BASE=https://github.com/womat/relayhat/releases/download/v$VERSION
 curl -LO $BASE/relayhat_${VERSION}_linux_$ARCH.tar.gz -LO $BASE/checksums.txt
 sha256sum -c checksums.txt --ignore-missing
@@ -542,12 +542,12 @@ sudo systemctl restart relayhat
 Every release on the [releases page](https://github.com/womat/relayhat/releases) carries archives for
 all Raspberry Pi architectures with the binary, `config/config.yaml`, `contrib/relayhat.service`,
 `README.md` and `LICENSE`,
-plus a `checksums.txt` and a changelog with upgrade notes. Versions follow
+plus a `checksums.txt` and a changelog. Versions follow
 [semantic versioning](https://semver.org/); a breaking change of the API or the configuration raises
 the major version.
 
 `relayhat --version` reports the release a binary was built from. A local build reports something
-like `1.9.0-3-g0c13781-dirty` instead, which is how the two are told apart on a device.
+like `2.0.1-3-g0c13781-dirty` instead, which is how the two are told apart on a device.
 
 Building from source needs Go and `make`: clone the repository and run `make help` for the targets;
 `make test` (the tests, Linux only) and `make lint` (go vet, golangci-lint, govulncheck) run what CI
