@@ -339,7 +339,7 @@ webserver:
   # Bearer tokens accepted on the protected endpoints, one "<name> <sha256>" per line.
   # Manage it with "relayhat token add|remove|list"; a relative path is relative to this file.
   # The file holds hashes only, but whoever can write it can add a token: owner root.
-  tokenFile: /opt/relayhat/etc/tokens
+  tokenFile: /opt/relayhat/etc/token-hashes
 
   # TLS private key file
   keyFile: /opt/relayhat/etc/key.pem
@@ -418,7 +418,7 @@ Every caller gets its own token: a browser, Node-RED, a script. relayhat keeps o
 of each, in the file named by `webserver.tokenFile`, one line per caller:
 
 ```
-# /opt/relayhat/etc/tokens
+# /opt/relayhat/etc/token-hashes
 browser  3f2a…c91e
 nodered  8b04…d7a2
 ```
@@ -560,7 +560,7 @@ only, and the unit lives in the repository:
 
 1. Make `/opt/relayhat` root-owned except `data/`, as in the [Quick start](#quick-start).
 2. Put the new binary next to the old one as `bin/relayhat.new`, and a copy of the config as
-   `etc/config.yaml.new` with `apiKey: …` replaced by `tokenFile: tokens`. The running 1.x is not
+   `etc/config.yaml.new` with `apiKey: …` replaced by `tokenFile: token-hashes`. The running 1.x is not
    touched by either.
 3. Create the tokens with the new binary, one per caller: `sudo /opt/relayhat/bin/relayhat.new
    token add nodered -config /opt/relayhat/etc/config.yaml.new`. This only writes the token file;

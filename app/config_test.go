@@ -18,7 +18,7 @@ func writeConfig(t *testing.T, content string) string {
 }
 
 func TestLoadConfigExample(t *testing.T) {
-	// readConfig: the example names /opt/relayhat/etc/tokens, which does not exist here.
+	// readConfig: the example names /opt/relayhat/etc/token-hashes, which does not exist here.
 	cfg, err := readConfig("../config/config.yaml")
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +87,7 @@ func TestExpandEnvBraces(t *testing.T) {
 // validConfig returns a config that passes Validate.
 func validConfig() *Config {
 	c := NewConfig()
-	c.Webserver.TokenFile = "/opt/relayhat/etc/tokens"
+	c.Webserver.TokenFile = "/opt/relayhat/etc/token-hashes"
 	c.Relays = map[string]RelayConfig{
 		"a": {GPIO: 2},
 		"b": {GPIO: 27},

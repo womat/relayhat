@@ -33,7 +33,7 @@ func (e emuRelays) open(n int) (*relay.Relay, error) {
 func testConfig(t *testing.T, relays map[string]RelayConfig) *Config {
 	t.Helper()
 	cfg := NewConfig()
-	cfg.Webserver.TokenFile = "/opt/relayhat/etc/tokens"
+	cfg.Webserver.TokenFile = "/opt/relayhat/etc/token-hashes"
 	cfg.Webserver.Tokens = []web.Token{{Name: "test", Hash: web.HashToken(testKey)}}
 	cfg.StateFile = filepath.Join(t.TempDir(), "state.yaml")
 	cfg.Relays = relays
