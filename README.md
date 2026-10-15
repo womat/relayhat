@@ -26,7 +26,7 @@ A relay HAT turns a Raspberry Pi into a switch for things the Pi cannot drive it
 utility lock or PV surplus input, a pump, a gate, a light. relayhat makes those relays usable from
 everywhere on your network:
 
-- a **REST API** over HTTPS with an API key, for Node-RED, Home Assistant, ioBroker, openHAB or a
+- a **REST API** over HTTPS with one bearer token per caller, for Node-RED, Home Assistant, ioBroker, openHAB or a
   `curl` in a script,
 - a **built-in web page** with a pilot light per relay and a **two-step switch** that a stray tap
   cannot trigger,
@@ -39,7 +39,7 @@ No cloud, no database, no runtime: a single binary, configured with one YAML fil
 ## Features
 
 - **Web page** per device: pilot light in the relay's colour, your own words for on and off
-  ("Locked" / "Released"), time in the current state, last switch with the client's host name —
+  ("Locked" / "Released"), time in the current state, last switch with the name of the caller's token —
   readable on a phone, light and dark mode
 - **Two-step switching** in the browser: the first tap arms the button for 3 seconds, the second
   switches; a double tap, `Esc` or the timeout cancel
@@ -47,9 +47,10 @@ No cloud, no database, no runtime: a single binary, configured with one YAML fil
   atomically, so a power cut cannot corrupt it
 - **Switch lock** (`minSwitchInterval`): a relay refuses to switch again within, say, 5 seconds or
   10 minutes of the last switch — for every client, answered with HTTP 429
-- **Audit trail**: every switch is logged with relay, old and new state and client; the last one is
-  shown on the page and kept across restarts
-- **HTTPS REST API** with API key, IP allowlist / blocklist, JSON errors
+- **Audit trail**: every switch is logged with relay, old and new state, token name and client; the
+  last one is shown on the page and kept across restarts
+- **HTTPS REST API** (TLS 1.3) with one bearer token per caller, stored only as a SHA-256 hash and
+  managed with `relayhat token`; IP allowlist / blocklist, JSON errors
 - **Hot reload** via `SIGHUP`: a broken file is refused, the relays do not even flicker
 - Release builds for every Raspberry Pi architecture, from the **Pi Zero (ARMv6)** to 64-bit systems
 
@@ -73,54 +74,53 @@ sha256sum -c checksums.txt --ignore-missing
 tar xzf relayhat_${VERSION}_linux_$ARCH.tar.gz
 ```
 
-**2. Install** binary, example configuration and a certificate:
+**2. Install** binary, example configuration and a certificate. Everything belongs to root except
+`data/`, where relayhat keeps the relay states; the service user `relayhat` may read `etc/`:
 
 ```sh
 sudo groupadd -r -f relayhat
 sudo useradd -r -s /usr/sbin/nologin -g relayhat relayhat
 sudo usermod -aG gpio relayhat
-sudo mkdir -p /opt/relayhat/{bin,etc,data}
+sudo install -d -o root -g root -m 755 /opt/relayhat /opt/relayhat/bin
+sudo install -d -o root -g relayhat -m 750 /opt/relayhat/etc
+sudo install -d -o relayhat -g relayhat -m 750 /opt/relayhat/data
 
-sudo install -m 755 relayhat /opt/relayhat/bin/
-sudo install -m 640 config/config.yaml /opt/relayhat/etc/
+sudo install -o root -g root -m 755 relayhat /opt/relayhat/bin/
+sudo install -o root -g relayhat -m 640 config/config.yaml /opt/relayhat/etc/
 sudo openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
   -keyout /opt/relayhat/etc/key.pem -out /opt/relayhat/etc/cert.pem -subj "/CN=$(hostname)"
-sudo chown -R relayhat:relayhat /opt/relayhat
+sudo chown root:relayhat /opt/relayhat/etc/key.pem /opt/relayhat/etc/cert.pem
+sudo chmod 640 /opt/relayhat/etc/key.pem
 ```
 
-**3. Configure** `/opt/relayhat/etc/config.yaml`: set `env: prod`, a random `apiKey`
-(`openssl rand -hex 24`) and one entry per relay — see [Configuration](#configuration) and
-[Hardware](#hardware).
+Why root: whoever can write `config.yaml` or the token file can add a token of their own, and
+whoever can write `bin/relayhat` can replace the program — and both switch your relays.
 
-**4. Start** it as a service and open the firewall:
+**3. Configure** `/opt/relayhat/etc/config.yaml`: set `env: prod` and one entry per relay — see
+[Configuration](#configuration) and [Hardware](#hardware). Then create a token for each caller,
+e.g. the browser and Node-RED:
 
 ```sh
-sudo tee /etc/systemd/system/relayhat.service > /dev/null <<'EOF'
-[Unit]
-Description=relayhat - switch the relays of a Raspberry Pi relay HAT
-After=network-online.target
-Wants=network-online.target
+sudo /opt/relayhat/bin/relayhat token add browser
+sudo /opt/relayhat/bin/relayhat token add nodered
+```
 
-[Service]
-User=relayhat
-Group=relayhat
-Type=simple
-ExecStart=/opt/relayhat/bin/relayhat
-ExecReload=/bin/kill -HUP $MAINPID
-Restart=on-failure
-RestartSec=5
+Each prints its token once; keep it, e.g. in a password manager. See [Tokens](#tokens).
 
-[Install]
-WantedBy=multi-user.target
-EOF
+**4. Start** it as a service, with the unit from the archive, and open the firewall:
 
+```sh
+sudo install -m 644 contrib/relayhat.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now relayhat
 sudo ufw allow 8443/tcp          # if ufw is active
 journalctl -u relayhat -n 20     # "Module started successfully"
 ```
 
-**5. Open** `https://<your-pi>:8443/`, accept the self-signed certificate and enter the API key.
+The unit runs relayhat in a sandbox: no capabilities, a read-only system except `data/`, only the
+GPIO chip as a device. A `logDestination` file has to go to `data/` as well.
+
+**5. Open** `https://<your-pi>:8443/`, accept the self-signed certificate and enter the token.
 
 ---
 
@@ -157,12 +157,13 @@ for soldering the header and the terminal connections.
 
 ## Web UI
 
-Open `https://<pi>:<listenPort>/` in a browser. The page asks for the API key once, keeps it in the
-browser's local storage and sends it as `X-API-Key`; **Sign out** forgets it.
+Open `https://<pi>:<listenPort>/` in a browser. The page asks for a token once
+(`relayhat token add browser`), keeps it in the browser's local storage and sends it as a bearer
+token; **Sign out** forgets it, and a rejected token brings the prompt back.
 
 - One card per relay with its `label`, `description` and GPIO, a pilot light in the relay's `color`,
   the state (`onText` / `offText`) and how long it has been in it, and the last switch with the
-  client's host name.
+  name of the caller's token (address in the tooltip).
 - **Two-step switching**: the first tap arms the button (`Confirm: …`, a bar runs down for 3 seconds),
   only a second tap within that time switches. A fast double tap, `Esc` or the timeout cancel. When
   another client switches the relay meanwhile, the pending confirmation is dropped.
@@ -173,19 +174,20 @@ browser's local storage and sends it as `X-API-Key`; **Sign out** forgets it.
   and the values are greyed out.
 - Self-contained: no external fonts or scripts, so it works on a network without internet access.
 
-The page itself is public, as it holds no data; everything it shows and switches goes through the
-API key. Limit who can reach it with `allowedIPs`, e.g. to your home network.
+The page itself is public, as it holds no data; everything it shows and switches needs a
+token. Limit who can reach it with `allowedIPs`, e.g. to your home network.
 
 ---
 
 ## Node-RED and Home Assistant
 
-Switching is a `PATCH` to `/relays/{name}/on` or `/off` with the API key in the `X-API-Key`
-header; the answer is the relay's new state.
+Switching is a `PATCH` to `/relays/{name}/on` or `/off` with a bearer token; the answer is the
+relay's new state. Give every caller a token of its own, so `lastChange.user` says who switched.
 
 **Node-RED**: an *http request* node with method `PATCH`, URL
-`https://<your-pi>:8443/relays/relay1/{{payload}}` (send `on` or `off` as `msg.payload`), the header
-`X-API-Key` and a TLS configuration without *Verify server certificate* for the self-signed
+`https://<your-pi>:8443/relays/relay1/{{payload}}` (send `on` or `off` as `msg.payload`), authentication
+*bearer authentication* with its token (`relayhat token add nodered`; Node-RED keeps it in its
+encrypted credentials, not in the flow) and a TLS configuration without *Verify server certificate* for the self-signed
 certificate.
 
 **Home Assistant**: a `rest_command` per state, used in automations or scripts:
@@ -196,13 +198,13 @@ rest_command:
     url: https://<your-pi>:8443/relays/relay1/on
     method: patch
     headers:
-      X-API-Key: !secret relayhat_api_key
+      Authorization: !secret relayhat_bearer   # "Bearer <token>"
     verify_ssl: false
   relay1_off:
     url: https://<your-pi>:8443/relays/relay1/off
     method: patch
     headers:
-      X-API-Key: !secret relayhat_api_key
+      Authorization: !secret relayhat_bearer   # "Bearer <token>"
     verify_ssl: false
 ```
 
@@ -217,15 +219,16 @@ allowed during the switch lock — a flow may send its state on every run.
 |--------|--------------------------|---------|--------------------------|
 | GET    | `/`                      | –       | Web page                 |
 | GET    | `/version`               | –       | App name and version     |
-| GET    | `/health`                | API Key | Runtime health metrics   |
-| GET    | `/relays`                | API Key | List all relays          |
-| GET    | `/relays/{name}`         | API Key | Get relay state          |
-| PATCH  | `/relays/{name}/{state}` | API Key | Set relay (`on` / `off`) |
+| GET    | `/health`                | Token   | Runtime health metrics   |
+| GET    | `/relays`                | Token   | List all relays          |
+| GET    | `/relays/{name}`         | Token   | Get relay state          |
+| PATCH  | `/relays/{name}/{state}` | Token   | Set relay (`on` / `off`) |
 
-Authentication via the `X-API-Key` header. Errors are returned as `{"error": "..."}` with the HTTP
-status (401, 404, 400 for an invalid state, 429 with a `Retry-After` header while the relay's switch
+Authentication with a bearer token from `relayhat token add`: `Authorization: Bearer <token>`. HTTPS
+is TLS 1.3 only. Errors are returned as `{"error": "..."}` with the HTTP
+status (401 without a valid token, 404, 400 for an invalid state, 429 with a `Retry-After` header while the relay's switch
 lock runs); a 500 carries only `internal server error`, the cause is in the log. Every switch is
-logged with relay, GPIO, old and new state and the client address.
+logged with relay, GPIO, old and new state, the token name and the client address.
 
 A relay is returned as:
 
@@ -241,15 +244,15 @@ A relay is returned as:
     "ageSeconds": 2820.4,
     "source": "api",
     "client": "192.168.1.20",
-    "host": "nodered.lan"
+    "user": "nodered"
   },
   "lock": { "intervalSeconds": 5, "remainingSeconds": 0 }
 }
 ```
 
 `display` comes from the configuration and is meant for the web page. `lastChange` is the last
-switch: `source` is `api`, or `start` when relayhat switched the relay to its start state; `host` is
-the client's reverse DNS name, looked up after the switch and missing when there is none.
+switch: `source` is `api`, or `start` when relayhat switched the relay to its start state; `client` is
+the address and `user` the name of the token of the caller.
 `lastChange` is kept in the `stateFile` and survives a restart. `lock` is present with
 `minSwitchInterval` only; `remainingSeconds` is how long the relay still refuses to switch. A request
 for the state the relay is already in succeeds without switching, so it neither changes `lastChange`
@@ -257,14 +260,14 @@ nor starts the lock.
 
 ```bash
 # Get all relays
-curl -k https://<your-pi>:8443/relays -H "X-API-Key: your-secret-key"
+curl -k https://<your-pi>:8443/relays -H "Authorization: Bearer $TOKEN"
 
 # Get a single relay
-curl -k https://<your-pi>:8443/relays/relay1 -H "X-API-Key: your-secret-key"
+curl -k https://<your-pi>:8443/relays/relay1 -H "Authorization: Bearer $TOKEN"
 
 # Turn a relay on / off
-curl -k -X PATCH https://<your-pi>:8443/relays/relay1/on -H "X-API-Key: your-secret-key"
-curl -k -X PATCH https://<your-pi>:8443/relays/relay1/off -H "X-API-Key: your-secret-key"
+curl -k -X PATCH https://<your-pi>:8443/relays/relay1/on -H "Authorization: Bearer $TOKEN"
+curl -k -X PATCH https://<your-pi>:8443/relays/relay1/off -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
@@ -273,16 +276,14 @@ curl -k -X PATCH https://<your-pi>:8443/relays/relay1/off -H "X-API-Key: your-se
 
 Default location: `/opt/relayhat/etc/config.yaml`
 
-- `${VAR}` is replaced with the environment variable `VAR`, e.g. `apiKey: ${RELAYHAT_API_KEY}`. Only
-  this form is expanded; a bare `$` stays as it is, so keys containing `$` are safe.
+- `${VAR}` is replaced with the environment variable `VAR`. Only this form is expanded; a bare `$`
+  stays as it is.
 - Unknown keys are an error, so a typo cannot silently fall back to a default.
 - Durations need a unit (`5s`, `10m`, `0s`); a bare number, `0` included, is rejected.
-- The configuration is validated on start and before every reload: `env` is `dev` or `prod`, `apiKey`
-  is set, `certFile` and `keyFile` exist with `env: prod`, every relay uses a GPIO between 2 and 27,
+- The configuration is validated on start and before every reload: `env` is `dev` or `prod`,
+  `tokenFile` is set and readable, `certFile` and `keyFile` exist with `env: prod`, every relay uses a GPIO between 2 and 27,
   no GPIO is used twice, and no relay name contains `/` or is `.` or `..` (the name is a URL path
   segment).
-- A weak `apiKey` (the example value or shorter than 16 characters) does not stop the service but is
-  logged as a warning.
 - `startState` per relay sets the state after the process starts: `off` (default), `on`, or `last` –
   the state before, read from `stateFile`. A missing, empty or damaged state file is not an error;
   the relays with `last` then start off and the log says why.
@@ -301,7 +302,7 @@ Default location: `/opt/relayhat/etc/config.yaml`
 # relayhat configuration
 #
 # ${VAR} is replaced with the environment variable VAR (only this form, a bare
-# "$" stays as it is), e.g. apiKey: ${RELAYHAT_API_KEY}.
+# "$" stays as it is), e.g. a password: ${RELAYHAT_PASSWORD}.
 # Unknown keys are an error, so a typo cannot silently fall back to a default.
 # =============================================================================
 
@@ -335,9 +336,10 @@ webserver:
   # Port the HTTPS server listens on
   listenPort: 8443
 
-  # Global API key for protected endpoints, sent as X-API-Key header.
-  # Use a random key of at least 16 characters; the example value is logged as a warning.
-  apiKey: changeme!
+  # Bearer tokens accepted on the protected endpoints, one "<name> <sha256>" per line.
+  # Manage it with "relayhat token add|remove|list"; a relative path is relative to this file.
+  # The file holds hashes only, but whoever can write it can add a token: owner root.
+  tokenFile: /opt/relayhat/etc/tokens
 
   # TLS private key file
   keyFile: /opt/relayhat/etc/key.pem
@@ -410,6 +412,60 @@ relay:
 
 ---
 
+## Tokens
+
+Every caller gets its own token: a browser, Node-RED, a script. relayhat keeps only the SHA-256 hash
+of each, in the file named by `webserver.tokenFile`, one line per caller:
+
+```
+# /opt/relayhat/etc/tokens
+browser  3f2a…c91e
+nodered  8b04…d7a2
+```
+
+The token itself exists only with the caller. Whoever reads the file cannot call relayhat with it,
+so it needs no more protection than the config — but whoever can **write** it can add a token of
+their own: keep it `root:relayhat 0640`, like `config.yaml`.
+
+| Command | Does |
+|---|---|
+| `sudo relayhat token add <name>` | Writes the hash, then prints the token once, on stdout alone |
+| `sudo relayhat token add <name> -dry-run` | Prints token and line, writes nothing |
+| `sudo relayhat token remove <name>` | Deletes the line |
+| `sudo relayhat token list` | Prints the names, never a hash |
+| `sudo systemctl reload relayhat` | Applies a change; the relays keep their state |
+
+`-config` works as for the service. A new token file gets `0640` and the owner and group of
+`config.yaml`. `add` refuses a name that is taken and prints no token when it cannot write the
+file, so a token that is shown but stored nowhere cannot happen. A name is 1–64 letters, digits,
+`.`, `_` or `-`.
+
+**Rotating without a gap:** `relayhat token add nodered-2`, move the caller to the new token,
+`relayhat token remove nodered`, reload. A lost token is not recovered but replaced the same way.
+
+**In the log:** at start and after every reload relayhat names the tokens it accepts
+(`Bearer tokens loaded … names=[browser nodered]`). Every switch is logged with `user`; the first
+request of each caller from each address is logged at info (`user=browser request.client=…
+firstAccess=true`), every rejected one as a warning with its address; the polls in between at debug.
+
+---
+
+## Security
+
+- The REST API and the web page are served over HTTPS only, TLS 1.3. Use your own certificate and
+  `env: prod` on every device, see [TLS Certificate](#tls-certificate).
+- Give every caller its own token (`relayhat token add <name>`); everything except `/`, `/version`
+  and the TLS handshake needs one. A token can switch every relay; relayhat stores only the hashes
+  and records who switched.
+- Keep `/opt/relayhat` owned by root except `data/`, as in the [Quick start](#quick-start), and run
+  the unit from `contrib/` with its sandbox.
+- Limit who can reach the port with `allowedIPs`, e.g. to your home network, and do not expose it
+  to the internet.
+
+Report vulnerabilities privately, see [SECURITY.md](SECURITY.md).
+
+---
+
 ## Reload, restart and stop
 
 Send `SIGHUP` to reload the configuration without restarting the process:
@@ -420,7 +476,7 @@ sudo systemctl reload relayhat
 kill -HUP $(pidof relayhat)
 ```
 
-The config file is validated first; if it is broken, the reload is refused, logged, and the service
+A reload also rereads the token file. The config file is validated first; if it is broken, the reload is refused, logged, and the service
 keeps running unchanged. Relays whose GPIO is still configured keep their state across the reload
 (also when they are renamed) — the GPIO line is handed over, not reopened, so the relay does not
 flicker. Removed relays are switched off, new ones start in their `startState`. The last switch of a
@@ -437,6 +493,9 @@ keep their state. A request that arrives while a reload is in progress gets HTTP
 | process start (boot, crash, `systemctl restart`) | `startState`: `off`, `on` or `last` |
 | stop (`SIGTERM`/`SIGINT`, `systemctl stop`)      | off                                 |
 
+A config that does not load or validate at start ends relayhat with exit code 78; the unit does not
+restart it then (`RestartPreventExitStatus=78`), and `systemctl status relayhat` shows why.
+
 ---
 
 ## Command-line Flags
@@ -448,6 +507,8 @@ keep their state. A request that arrives while a reload is in progress gets HTTP
 | `--version` | `false`                         | Print the application version and exit            |
 | `--about`   | `false`                         | Print application details and exit                |
 | `--help`    | `false`                         | Print this help message and exit                  |
+
+`relayhat token add|remove|list` manages the bearer tokens, see [Tokens](#tokens).
 
 The config file path can also be set via the environment variable `CONFIG_FILE`; `--config` wins
 over it.
@@ -470,8 +531,7 @@ try, but that key ships in every release, so never use it on a reachable device.
 sudo tar czf /tmp/relayhat-backup.tar.gz /opt/relayhat
 
 # Restore
-sudo tar xzf /tmp/relayhat-backup.tar.gz -C /
-sudo chown -R relayhat:relayhat /opt/relayhat
+sudo tar xzf /tmp/relayhat-backup.tar.gz -C /     # as root, tar keeps owners and modes
 sudo systemctl restart relayhat
 ```
 
@@ -480,7 +540,8 @@ sudo systemctl restart relayhat
 ## Releases
 
 Every release on the [releases page](https://github.com/womat/relayhat/releases) carries archives for
-all Raspberry Pi architectures with the binary, `config/config.yaml`, `README.md` and `LICENSE`,
+all Raspberry Pi architectures with the binary, `config/config.yaml`, `contrib/relayhat.service`,
+`README.md` and `LICENSE`,
 plus a `checksums.txt` and a changelog with upgrade notes. Versions follow
 [semantic versioning](https://semver.org/); a breaking change of the API or the configuration raises
 the major version.
@@ -491,6 +552,29 @@ like `1.9.0-3-g0c13781-dirty` instead, which is how the two are told apart on a 
 Building from source needs Go and `make`: clone the repository and run `make help` for the targets;
 `make test` (the tests, Linux only) and `make lint` (go vet, golangci-lint, govulncheck) run what CI
 checks. [`CLAUDE.md`](CLAUDE.md) describes the architecture, the tests and the release process.
+
+### Upgrading to 2.0.0
+
+The API key is replaced by bearer tokens, `lastChange.host` by `lastChange.user`, HTTPS is TLS 1.3
+only, and the unit lives in the repository:
+
+1. Make `/opt/relayhat` root-owned except `data/`, as in the [Quick start](#quick-start).
+2. Put the new binary next to the old one as `bin/relayhat.new`, and a copy of the config as
+   `etc/config.yaml.new` with `apiKey: …` replaced by `tokenFile: tokens`. The running 1.x is not
+   touched by either.
+3. Create the tokens with the new binary, one per caller: `sudo /opt/relayhat/bin/relayhat.new
+   token add nodered -config /opt/relayhat/etc/config.yaml.new`. This only writes the token file;
+   it opens no GPIO.
+4. Move `relayhat.new` and `config.yaml.new` into place, install `contrib/relayhat.service`, then
+   `sudo systemctl daemon-reload && sudo systemctl restart relayhat`. Like every restart, this
+   switches the relays off for a moment; with `startState: last` they come back. A config that
+   still has `apiKey` is refused with a message that says so.
+5. Every caller sends `Authorization: Bearer <token>`; `X-API-Key` is no longer accepted. In
+   Node-RED, set the *http request* nodes to *bearer authentication*. The web page asks for the
+   token once.
+6. A client that told its own switches by `lastChange.host` uses `lastChange.user` now;
+   `lastChange.client` stays. The state file of 1.x is read, its `host` ignored.
+7. A client limited to TLS 1.2 can no longer connect.
 
 ---
 

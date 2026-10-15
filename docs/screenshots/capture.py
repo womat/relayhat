@@ -1,7 +1,7 @@
 """Check the relayhat web UI in a real browser and capture the README screenshots and social preview.
 
 Serves the real app/ui/index.html with a mocked API (/relays, /health and PATCH
-/relays/{name}/{state}, API key "demo"), clicks through login, the two-step switch and a
+/relays/{name}/{state}, bearer token "demo"), clicks through login, the two-step switch and a
 rejected key in headless Chromium, then photographs the page. Run from the project root, on
 demand only:
 
@@ -31,14 +31,14 @@ KEY = "demo"
 UPTIME = 3 * 86400 + 4 * 3600 + 12 * 60
 
 # The relays of a heat pump: the utility's lock signal and a forced run on PV surplus. "age" is the
-# seconds since the last switch. Host names and addresses are examples, not a real network.
+# seconds since the last switch. Token names and addresses are examples, not a real network.
 RELAYS = [
     dict(name="relay1", state="off", description="Utility lock signal of the heat pump", gpio=4,
          display=dict(label="Utility lock", color="red", onText="Locked", offText="Released"),
-         age=26 * 3600 + 7 * 60, source="api", client="192.168.1.20", host="nodered.lan"),
+         age=26 * 3600 + 7 * 60, source="api", client="192.168.1.20", user="nodered"),
     dict(name="relay2", state="on", description="Forced run on PV surplus", gpio=17,
          display=dict(label="PV surplus", color="green", onText="Forced run", offText="Normal"),
-         age=47 * 60, source="api", client="192.168.1.20", host="nodered.lan", lock=5),
+         age=47 * 60, source="api", client="192.168.1.20", user="nodered", lock=5),
 ]
 
 
@@ -73,7 +73,7 @@ class Api:
         out["lastChange"] = {
             "time": r["changed"].replace(microsecond=0).isoformat(),
             "ageSeconds": (now - r["changed"]).total_seconds(),
-            "source": r["source"], "client": r["client"], "host": r["host"],
+            "source": r["source"], "client": r["client"], "user": r["user"],
         }
         return out
 
@@ -90,7 +90,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def authorized(self):
-        if API.reject or self.headers.get("X-API-Key") != KEY:
+        if API.reject or self.headers.get("Authorization") != "Bearer " + KEY:
             self.send_json(401, {"error": "not authorized"})
             return False
         return True
@@ -134,7 +134,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             API.patches.append((r["name"], parts[2]))
             r.update(state=parts[2], changed=datetime.now(TZ), source="api", client="192.168.1.23",
-                     host="laptop.lan")
+                     user="browser")
             self.send_json(200, API.view(r))
 
     def log_message(self, *args):
