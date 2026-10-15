@@ -63,6 +63,7 @@ archives:
       - README.md
       - LICENSE
       - config/config.yaml
+      - contrib/relayhat.service
 
 checksum:
   name_template: checksums.txt
