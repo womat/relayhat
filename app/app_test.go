@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/womat/golib/gpio"
-	"github.com/womat/golib/web"
+	"github.com/womat/golib/v2/web"
+	"github.com/womat/gpio"
 	"github.com/womat/relayhat/pkg/relay"
 )
 

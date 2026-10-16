@@ -1,16 +1,16 @@
 // Package relay switches a single relay through a Raspberry Pi GPIO output.
 //
 // It is hardware-facing only: a Relay knows its pin and its state, nothing of
-// names, descriptions or configuration. New opens the pin through golib's
-// gpio/rpi; NewWithPin takes any gpio.Pin, which is how the tests drive it with
-// golib's in-memory gpio/rpiemu.
+// names, descriptions or configuration. New opens the pin through
+// github.com/womat/gpio/rpi; NewWithPin takes any gpio.Pin, which is how the tests
+// drive it with the in-memory gpio/rpiemu.
 package relay
 
 import (
 	"errors"
 
-	"github.com/womat/golib/gpio"
-	"github.com/womat/golib/gpio/rpi"
+	"github.com/womat/gpio"
+	"github.com/womat/gpio/rpi"
 )
 
 const (

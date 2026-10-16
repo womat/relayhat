@@ -3,8 +3,8 @@ package relay
 import (
 	"testing"
 
-	"github.com/womat/golib/gpio"
-	"github.com/womat/golib/gpio/rpiemu"
+	"github.com/womat/gpio"
+	"github.com/womat/gpio/rpiemu"
 )
 
 // newTestRelay returns a relay on an emulated output pin.

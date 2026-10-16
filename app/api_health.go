@@ -3,7 +3,7 @@ package app
 import (
 	"net/http"
 
-	"github.com/womat/golib/web"
+	"github.com/womat/golib/v2/web"
 	"github.com/womat/relayhat/app/service/health"
 )
 

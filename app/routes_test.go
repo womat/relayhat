@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/womat/golib/gpio"
-	"github.com/womat/golib/gpio/rpiemu"
-	"github.com/womat/golib/web"
+	"github.com/womat/golib/v2/web"
+	"github.com/womat/gpio"
+	"github.com/womat/gpio/rpiemu"
 	"github.com/womat/relayhat/pkg/relay"
 )
 
