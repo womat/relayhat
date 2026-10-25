@@ -56,7 +56,7 @@ type LastChangeInfo struct {
 // HandleRelayGetOne returns the state of a single relay by name.
 //
 //	@Summary		Get relay state
-//	@Description	Returns name, state (on/off) and description for the given relay.
+//	@Description	Returns name, state (on/off), description, GPIO, the display settings of the web page, the last switch (time, source, client, user; absent when unknown) and the switch lock (absent without minSwitchInterval) of the given relay.
 //	@Tags			relay
 //	@Produce		json
 //	@Security		BearerAuth
@@ -84,7 +84,7 @@ func (app *App) HandleRelayGetOne() http.Handler {
 // HandleRelayGetAll returns the state of all configured relays.
 //
 //	@Summary		List all relays
-//	@Description	Returns name, state (on/off) and description for every configured relay.
+//	@Description	Returns every configured relay, sorted by name, in the form of GET /relays/{name}.
 //	@Tags			relay
 //	@Produce		json
 //	@Security		BearerAuth

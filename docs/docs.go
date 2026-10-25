@@ -53,7 +53,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns name, state (on/off) and description for every configured relay.",
+                "description": "Returns every configured relay, sorted by name, in the form of GET /relays/{name}.",
                 "produces": [
                     "application/json"
                 ],
@@ -93,7 +93,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns name, state (on/off) and description for the given relay.",
+                "description": "Returns name, state (on/off), description, GPIO, the display settings of the web page, the last switch (time, source, client, user; absent when unknown) and the switch lock (absent without minSwitchInterval) of the given relay.",
                 "produces": [
                     "application/json"
                 ],
