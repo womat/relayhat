@@ -43,9 +43,9 @@ func TestReadRelayStatesNeverFails(t *testing.T) {
 	dir := t.TempDir()
 	for name, content := range map[string]*string{
 		"missing": nil,
-		"empty":   ptr("  \n"),
-		"damaged": ptr("pump: [on\n"),
-		"no map":  ptr("- on\n"),
+		"empty":   new("  \n"),
+		"damaged": new("pump: [on\n"),
+		"no map":  new("- on\n"),
 	} {
 		t.Run(name, func(t *testing.T) {
 			file := filepath.Join(dir, name+".yaml")
@@ -89,8 +89,6 @@ func TestSaveRelayStatesMissingDirectory(t *testing.T) {
 		t.Error("expected an error for a missing directory")
 	}
 }
-
-func ptr(s string) *string { return &s }
 
 // A state file of relayhat 1.8 or 1.9 carries the reverse DNS name as host; it is still read,
 // the host is ignored.

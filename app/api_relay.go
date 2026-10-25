@@ -145,8 +145,7 @@ func (app *App) HandleRelaySet() http.Handler {
 			user, _ := web.UserFrom(r.Context())
 			res, stat, err := app.relaySet(name, state, r.RemoteAddr, user)
 			if err != nil {
-				var locked errSwitchLocked
-				if errors.As(err, &locked) {
+				if locked, ok := errors.AsType[errSwitchLocked](err); ok {
 					w.Header().Set("Retry-After", strconv.Itoa(int(locked.remaining/time.Second)))
 				}
 				web.WriteError(w, r, stat, err)
