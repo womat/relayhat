@@ -119,6 +119,8 @@ func TestValidate(t *testing.T) {
 		"unknown env":           func(c *Config) { c.Env = "staging" },
 		"unknown log level":     func(c *Config) { c.LogLevel = "trace" },
 		"port out of range":     func(c *Config) { c.Webserver.ListenPort = 70000 },
+		"bad allowedIPs":        func(c *Config) { c.Webserver.AllowedIPs = []string{"192.168.0.300"} },
+		"bad blockedIPs":        func(c *Config) { c.Webserver.BlockedIPs = []string{"10.0.0.0/33"} },
 		"empty relay name":      func(c *Config) { c.Relays[""] = RelayConfig{GPIO: 5} },
 		"relay name with slash": func(c *Config) { c.Relays["a/b"] = RelayConfig{GPIO: 5} },
 		"relay name dot dot":    func(c *Config) { c.Relays[".."] = RelayConfig{GPIO: 5} },

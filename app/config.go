@@ -232,6 +232,15 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// The IP filter only logs and skips an unusable entry; a typo here would become a rule that
+	// never matches, so it stops the start instead.
+	if err := web.ValidateIPList(c.Webserver.AllowedIPs); err != nil {
+		return fmt.Errorf("webserver.allowedIPs: %w", err)
+	}
+	if err := web.ValidateIPList(c.Webserver.BlockedIPs); err != nil {
+		return fmt.Errorf("webserver.blockedIPs: %w", err)
+	}
+
 	// Visit the relays in a fixed order, so the reported duplicate does not depend on map order.
 	names := make([]string, 0, len(c.Relays))
 	for name := range c.Relays {

@@ -192,10 +192,21 @@ func TestRelayErrors(t *testing.T) {
 	}
 }
 
+// A preflight needs no token and advertises the methods the API serves only.
 func TestCORSAdvertisesUsedMethodsOnly(t *testing.T) {
 	app, _ := newTestApp(t, nil, nil)
 
-	rec := serve(app, http.MethodOptions, "/relays/r1/on", "")
+	// A preflight is an OPTIONS request with Access-Control-Request-Method; WithCORS answers it
+	// before auth and the mux.
+	req := httptest.NewRequest(http.MethodOptions, "/relays/r1/on", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	req.Header.Set("Origin", "https://example.com")
+	req.Header.Set("Access-Control-Request-Method", http.MethodPatch)
+	rec := httptest.NewRecorder()
+	app.web.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("preflight OPTIONS /relays/r1/on = %d, want 204 without a token", rec.Code)
+	}
 	if got, want := rec.Header().Get("Access-Control-Allow-Methods"), "GET, PATCH, OPTIONS"; got != want {
 		t.Errorf("Access-Control-Allow-Methods = %q, want %q", got, want)
 	}
@@ -218,8 +229,9 @@ func TestUIIsPublicAndOnlyAtRoot(t *testing.T) {
 		t.Error("GET / did not serve the web page")
 	}
 
-	if rec := serve(app, http.MethodGet, "/unknown", ""); rec.Code == http.StatusOK {
-		t.Error("GET /unknown = 200, the page must be served at / only")
+	// No "OPTIONS /" route (WithCORS answers preflights), so an unknown path is a 404, not 405.
+	if rec := serve(app, http.MethodGet, "/unknown", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("GET /unknown = %d, want 404: the page must be served at / only", rec.Code)
 	}
 }
 

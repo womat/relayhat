@@ -348,6 +348,7 @@ webserver:
   certFile: /opt/relayhat/etc/cert.pem
 
   # Blocked IP addresses or networks (empty = none blocked)
+  # An entry that is no address or network is a config error, also in allowedIPs.
   # Examples: 192.168.0.1, 192.168.0.0/16, 10.0.0.0/8
   blockedIPs: []
   #  - 192.168.0.1
@@ -425,7 +426,8 @@ nodered  8b04…d7a2
 
 The token itself exists only with the caller. Whoever reads the file cannot call relayhat with it,
 so it needs no more protection than the config — but whoever can **write** it can add a token of
-their own: keep it `root:relayhat 0640`, like `config.yaml`.
+their own: keep it `root:relayhat 0640`, like `config.yaml`. relayhat logs the warning "Token file
+is not protected" at every start and reload when it could change the file or a directory above it.
 
 | Command | Does |
 |---|---|
@@ -435,10 +437,10 @@ their own: keep it `root:relayhat 0640`, like `config.yaml`.
 | `sudo relayhat token list` | Prints the names, never a hash |
 | `sudo systemctl reload relayhat` | Applies a change; the relays keep their state |
 
-`-config` works as for the service. A new token file gets `0640` and the owner and group of
-`config.yaml`. `add` refuses a name that is taken and prints no token when it cannot write the
-file, so a token that is shown but stored nowhere cannot happen. A name is 1–64 letters, digits,
-`.`, `_` or `-`.
+`-config` works as for the service. A new token file gets `0640` and the group of `config.yaml`;
+its owner is whoever runs the command, root with `sudo`. `add` refuses a name that is taken and
+prints no token when it cannot write the file, so a token that is shown but stored nowhere cannot
+happen. A name is 1–64 letters, digits, `.`, `_` or `-`.
 
 **Rotating without a gap:** `relayhat token add nodered-2`, move the caller to the new token,
 `relayhat token remove nodered`, reload. A lost token is not recovered but replaced the same way.
