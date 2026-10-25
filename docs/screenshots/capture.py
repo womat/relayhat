@@ -151,10 +151,10 @@ def check(browser):
 
     # Login: a wrong token is rejected, the right one shows the relays.
     assert page.locator("#login").is_visible(), "no login without a stored token"
-    page.fill("#apikey", "wrong")
+    page.fill("#token", "wrong")
     page.click("#keyform button")
     page.wait_for_selector("#keyerr:not([hidden])")
-    page.fill("#apikey", KEY)
+    page.fill("#token", KEY)
     page.click("#keyform button")
     page.wait_for_selector("article.card")
     assert page.locator("article.card").count() == 2
@@ -214,7 +214,7 @@ def shoot(browser, path, width, height, scheme, scale=1, full_page=True):
     API.reset()
     ctx = browser.new_context(viewport={"width": width, "height": height}, timezone_id="Europe/Vienna",
                               color_scheme=scheme, device_scale_factor=scale)
-    ctx.add_init_script(f"localStorage.setItem('relayhat.apiKey', '{KEY}')")
+    ctx.add_init_script(f"localStorage.setItem('relayhat.token', '{KEY}')")
     page = ctx.new_page()
     page.goto(f"http://localhost:{PORT}/")
     page.wait_for_selector("article.card")

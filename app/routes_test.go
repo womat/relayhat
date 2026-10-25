@@ -225,7 +225,7 @@ func TestUIIsPublicAndOnlyAtRoot(t *testing.T) {
 	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "connect-src 'self'") {
 		t.Errorf("Content-Security-Policy = %q, want connect-src 'self'", csp)
 	}
-	if !strings.Contains(rec.Body.String(), "relayhat.apiKey") {
+	if !strings.Contains(rec.Body.String(), "relayhat.token") {
 		t.Error("GET / did not serve the web page")
 	}
 
