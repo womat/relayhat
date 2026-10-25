@@ -225,10 +225,7 @@ func (app *App) Run() (*App, error) {
 	if err := app.StartWebServer(); err != nil {
 		slog.Error("Web server failed to start", "url", app.web.Addr, "error", err)
 		app.stop()
-		app.mu.Lock()
-		app.handover = mergeRelays(nil, app.relays)
-		app.relays = make(map[string]*Relay)
-		app.mu.Unlock()
+		app.handOverRelays()
 		return app, err
 	}
 
@@ -388,6 +385,15 @@ func (app *App) saveStates() {
 	}
 }
 
+// handOverRelays moves the relays the App owns into app.handover for the next App (see
+// Handover), so Cleanup does not close them.
+func (app *App) handOverRelays() {
+	app.mu.Lock()
+	app.handover = mergeRelays(nil, app.relays)
+	app.relays = make(map[string]*Relay)
+	app.mu.Unlock()
+}
+
 // mergeRelays adds the relays of named to byGPIO and returns it.
 func mergeRelays(byGPIO map[int]*Relay, named map[string]*Relay) map[int]*Relay {
 	if byGPIO == nil {
@@ -476,10 +482,7 @@ func (app *App) shutdownProcedure(mode int) {
 	app.stop()
 
 	if mode == ModeRestart {
-		app.mu.Lock()
-		app.handover = mergeRelays(nil, app.relays)
-		app.relays = make(map[string]*Relay)
-		app.mu.Unlock()
+		app.handOverRelays()
 	}
 
 	if err := app.Cleanup(); err != nil {
