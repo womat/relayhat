@@ -210,9 +210,6 @@ func (app *App) Run() (*App, error) {
 		return app, err
 	}
 
-	// handle the OS signals
-	app.HandleOSSignals()
-
 	names := make([]string, 0, len(app.config.Webserver.Tokens))
 	for _, t := range app.config.Webserver.Tokens {
 		names = append(names, t.Name)
@@ -234,6 +231,11 @@ func (app *App) Run() (*App, error) {
 		app.mu.Unlock()
 		return app, err
 	}
+
+	// Only now: a signal that waited in the channel during a restart would otherwise be taken
+	// before a failed web server start, and its shutdown would run alongside the handover above.
+	// A server error in between waits in app.serverErr.
+	app.HandleOSSignals()
 
 	slog.Info("Module started successfully",
 		"module", MODULE,
@@ -310,7 +312,7 @@ func (app *App) Init() (err error) {
 		slog.Warn("Token file is not protected", "error", err)
 	}
 
-	// initRoutes should always be called at the end
+	// SetupRoutes should always be called at the end
 	slog.Debug("Initializing API routes")
 	app.SetupRoutes()
 	return nil
@@ -427,7 +429,7 @@ func (app *App) HandleOSSignals() {
 		// Use select instead of a plain channel receive so the goroutine has
 		// two exit paths and always terminates cleanly:
 		//   - a signal or a server error is received and handled, or
-		//   - the context is cancelled externally (e.g. from a failed start).
+		//   - the context is cancelled by a stop that did not come from here.
 		// Without the second path the goroutine would outlive its App and take
 		// the next signal away from the App that replaced it. The loop only
 		// continues after a SIGHUP whose config was rejected.

@@ -126,8 +126,8 @@ func NewConfig() *Config {
 var envBraces = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 // expandEnvBraces replaces ${VAR} with the value of the environment variable VAR, or with an
-// empty string when it is unset. Unlike os.ExpandEnv it leaves every other "$" alone, so an API
-// key containing "$" is not silently cut short.
+// empty string when it is unset. Unlike os.ExpandEnv it leaves every other "$" alone, so a value
+// containing "$" (e.g. a password) is not silently cut short.
 func expandEnvBraces(s string) string {
 	return envBraces.ReplaceAllStringFunc(s, func(ref string) string {
 		return os.Getenv(envBraces.FindStringSubmatch(ref)[1])

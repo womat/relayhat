@@ -206,9 +206,11 @@ func (app *App) relayGet(name string) (HTTPResponse, int, error) {
 }
 
 // relaySet switches a relay, logs who switched it, records the switch and saves the states.
-// client is the request's remote address, user the name of its bearer token. A relay already in state is not switched again: the request
-// succeeds, but neither the last switch nor the switch lock change. Within minSwitchInterval
-// of the last switch the request fails with 429.
+// client is the request's remote address, user the name of its bearer token.
+//
+// A relay already in state is not switched again: the request succeeds, but neither the last
+// switch nor the switch lock change. Within minSwitchInterval of the last switch the request
+// fails with 429.
 func (app *App) relaySet(name, state, client, user string) (HTTPResponse, int, error) {
 	var want relay.State
 	switch state {

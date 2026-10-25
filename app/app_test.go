@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -157,7 +159,8 @@ func TestRejectedReloadKeepsRunning(t *testing.T) {
 }
 
 // A web server that cannot start makes Run fail, but hands the relays over instead of switching
-// them off, so the caller can fall back to the previous configuration with them.
+// them off, so the caller can fall back to the previous configuration with them. A signal that
+// waited in the channel is left there for that App.
 func TestRunFailureHandsRelaysOver(t *testing.T) {
 	busy, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -169,11 +172,18 @@ func TestRunFailureHandsRelaysOver(t *testing.T) {
 	cfg.Webserver.ListenHost = "127.0.0.1"
 	cfg.Webserver.ListenPort = busy.Addr().(*net.TCPAddr).Port
 	pins := emuRelays{}
-	app := New(cfg, nil, nil, nil)
+	signals := make(chan os.Signal, 1)
+	signals <- syscall.SIGTERM
+	app := New(cfg, signals, nil, nil)
 	app.openRelay = pins.open
 
 	if _, err := app.Run(); err == nil {
 		t.Fatal("Run with a busy port succeeded")
+	}
+	select {
+	case <-signals:
+	default:
+		t.Error("the failed Run took the waiting SIGTERM away from the next App")
 	}
 	handover := app.Handover()
 	t.Cleanup(func() {
@@ -396,6 +406,32 @@ func TestSwitchLock(t *testing.T) {
 	c.t = c.t.Add(7 * time.Second)
 	if rec := serve(app, http.MethodPatch, "/relays/pump/off", testKey); rec.Code != http.StatusOK {
 		t.Errorf("switch after the lock = %d, want 200", rec.Code)
+	}
+}
+
+// Concurrent requests cannot both pass the lock: of many at the same time, exactly one switches.
+func TestSwitchLockConcurrent(t *testing.T) {
+	app, _ := newTestApp(t, map[string]RelayConfig{"pump": {GPIO: 4, MinSwitchInterval: time.Minute}}, nil)
+	r := app.relays["pump"]
+	at := time.Now().Add(time.Hour) // well past the start, which counts as a switch
+
+	var switches atomic.Int32
+	var wg sync.WaitGroup
+	for i := range 20 {
+		want := relay.On
+		if i%2 == 1 {
+			want = relay.Off
+		}
+		wg.Go(func() {
+			if _, switched, _ := r.switchTo(want, Change{Time: at, Source: SourceAPI}); switched {
+				switches.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+
+	if n := switches.Load(); n != 1 {
+		t.Errorf("%d concurrent requests switched, want exactly 1 within minSwitchInterval", n)
 	}
 }
 
