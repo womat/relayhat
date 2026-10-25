@@ -2,9 +2,12 @@ package app
 
 import (
 	"errors"
+	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -111,6 +114,79 @@ func TestInitFailureHandsEverythingBack(t *testing.T) {
 		t.Fatal("app.mu is still held after the failed Init")
 	}
 	second.mu.Unlock()
+}
+
+// A SIGHUP whose config file does not load is refused: the App keeps running and switching with
+// its current configuration, and a later SIGTERM still stops it.
+func TestRejectedReloadKeepsRunning(t *testing.T) {
+	app, pins := newTestApp(t, map[string]RelayConfig{"r1": {GPIO: 4}}, nil)
+	signals := make(chan os.Signal, 1)
+	app.signals = signals
+	checked := make(chan struct{}, 1)
+	app.checkReload = func() error {
+		checked <- struct{}{}
+		return errors.New("broken config")
+	}
+	app.HandleOSSignals()
+	serve(app, http.MethodPatch, "/relays/r1/on", testKey)
+
+	signals <- syscall.SIGHUP
+	select {
+	case <-checked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("SIGHUP did not check the config file")
+	}
+	select {
+	case <-app.Restart():
+		t.Fatal("a SIGHUP with a broken config file restarted the App")
+	case <-time.After(100 * time.Millisecond):
+	}
+	if l, _ := pins[4].Value(); l != gpio.High {
+		t.Error("the refused reload switched the relay off")
+	}
+	if rec := serve(app, http.MethodPatch, "/relays/r1/off", testKey); rec.Code != http.StatusOK {
+		t.Errorf("PATCH after the refused reload = %d, want 200", rec.Code)
+	}
+
+	signals <- syscall.SIGTERM
+	select {
+	case <-app.Shutdown():
+	case <-time.After(5 * time.Second):
+		t.Fatal("SIGTERM after a refused reload did not stop the App")
+	}
+}
+
+// A web server that cannot start makes Run fail, but hands the relays over instead of switching
+// them off, so the caller can fall back to the previous configuration with them.
+func TestRunFailureHandsRelaysOver(t *testing.T) {
+	busy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = busy.Close() }()
+
+	cfg := testConfig(t, map[string]RelayConfig{"r1": {GPIO: 4, StartState: StartOn}})
+	cfg.Webserver.ListenHost = "127.0.0.1"
+	cfg.Webserver.ListenPort = busy.Addr().(*net.TCPAddr).Port
+	pins := emuRelays{}
+	app := New(cfg, nil, nil, nil)
+	app.openRelay = pins.open
+
+	if _, err := app.Run(); err == nil {
+		t.Fatal("Run with a busy port succeeded")
+	}
+	handover := app.Handover()
+	t.Cleanup(func() {
+		for _, r := range handover {
+			_ = r.Close()
+		}
+	})
+	if _, ok := handover[4]; !ok || len(handover) != 1 {
+		t.Fatalf("handover after the failed Run = %v, want gpio 4", handover)
+	}
+	if l, _ := pins[4].Value(); l != gpio.High {
+		t.Error("the failed Run switched the relay off")
+	}
 }
 
 // After a shutdown has begun, a request still running must not switch a relay.

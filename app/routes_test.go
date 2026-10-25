@@ -101,6 +101,31 @@ func TestRoutesRequireToken(t *testing.T) {
 	}
 }
 
+// allowedIPs and blockedIPs apply to every route, the public ones included.
+func TestIPFilter(t *testing.T) {
+	cfg := testConfig(t, map[string]RelayConfig{"r1": {GPIO: 4}})
+	cfg.Webserver.AllowedIPs = []string{"127.0.0.0/8"}
+	cfg.Webserver.BlockedIPs = []string{"127.0.0.2"}
+	app, _ := startTestApp(t, cfg, nil)
+
+	for _, tt := range []struct {
+		remote string
+		want   int
+	}{
+		{"127.0.0.1:1234", http.StatusOK},
+		{"127.0.0.2:1234", http.StatusForbidden}, // blocked within the allowed network
+		{"192.0.2.1:1234", http.StatusForbidden}, // outside the allowed network
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/version", nil)
+		req.RemoteAddr = tt.remote
+		rec := httptest.NewRecorder()
+		app.web.Handler.ServeHTTP(rec, req)
+		if rec.Code != tt.want {
+			t.Errorf("GET /version from %s = %d, want %d", tt.remote, rec.Code, tt.want)
+		}
+	}
+}
+
 func TestRelaySwitching(t *testing.T) {
 	app, pins := newTestApp(t, map[string]RelayConfig{
 		"r1": {GPIO: 4, Description: "pump"},
